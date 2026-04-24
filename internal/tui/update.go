@@ -2,6 +2,7 @@ package tui
 
 import (
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -40,12 +41,19 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
+	now := time.Now()
+	prev := m.lastKeyAt
+	m.lastKeyAt = now
+
 	switch m.phase {
 	case phaseInput:
 		if msg.Type == tea.KeyEnter {
-			// Alt+Enter (user) or Enter inside a bracketed paste
-			// insert a newline; a bare Enter typed by the user submits.
-			if msg.Alt || msg.Paste {
+			// An Enter is a newline when it clearly belongs to a paste:
+			// bracketed-paste flag, Alt modifier, or a burst tighter than
+			// any human can type (see pasteKeyGap). Otherwise it submits.
+			fromPaste := msg.Alt || msg.Paste ||
+				(!prev.IsZero() && now.Sub(prev) < pasteKeyGap)
+			if fromPaste {
 				m.input.Newline()
 				return m, nil
 			}
