@@ -43,6 +43,11 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.phase {
 	case phaseInput:
 		if msg.Type == tea.KeyEnter {
+			// Alt+Enter inserts a newline; plain Enter submits.
+			if msg.Alt {
+				m.input.Newline()
+				return m, nil
+			}
 			goal := strings.TrimSpace(m.input.Value())
 			if goal == "" {
 				return m, nil

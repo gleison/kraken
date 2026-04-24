@@ -51,7 +51,7 @@ func NewModel(orch *orchestrator.Orchestrator) Model {
 		orch:   orch,
 		styles: DefaultStyles(),
 		phase:  phaseInput,
-		input:  newTextInput("Descreva uma tarefa complexa e pressione Enter..."),
+		input:  newTextInput("Descreva a tarefa — Enter envia, Alt+Enter quebra linha..."),
 	}
 }
 

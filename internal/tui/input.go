@@ -9,9 +9,9 @@ import (
 
 var placeholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")).Italic(true)
 
-// textInput is a tiny single-field editor used by the input screen.
+// textInput is a tiny multi-line editor used by the input screen.
 // It intentionally avoids the github.com/charmbracelet/bubbles dep:
-// all we need is append rune / backspace / clear / render.
+// all we need is append rune / newline / backspace / clear / render.
 type textInput struct {
 	value       []rune
 	placeholder string
@@ -35,7 +35,12 @@ func (t *textInput) Focus() { t.focused = true }
 // SetWidth updates the visible width.
 func (t *textInput) SetWidth(w int) { t.width = w }
 
-// Update handles a key message and reports whether the buffer changed.
+// Newline appends a line break to the buffer.
+func (t *textInput) Newline() { t.value = append(t.value, '\n') }
+
+// Update handles a key message by mutating the buffer.
+// Enter/Alt+Enter are decided by the caller (different semantics: submit vs.
+// newline), so this method ignores tea.KeyEnter entirely.
 func (t *textInput) Update(msg tea.KeyMsg) {
 	switch msg.Type {
 	case tea.KeyBackspace:
@@ -47,17 +52,32 @@ func (t *textInput) Update(msg tea.KeyMsg) {
 	}
 }
 
-// View renders the input line.
+// View renders the input, preserving embedded newlines.
 func (t textInput) View() string {
-	var b strings.Builder
-	b.WriteString("> ")
 	if len(t.value) == 0 {
-		b.WriteString(placeholderStyle.Render(t.placeholder))
-	} else {
-		b.WriteString(string(t.value))
+		return "> " + placeholderStyle.Render(t.placeholder) + t.cursor()
 	}
-	if t.focused {
-		b.WriteString("▌")
+
+	lines := strings.Split(string(t.value), "\n")
+	var b strings.Builder
+	for i, line := range lines {
+		if i == 0 {
+			b.WriteString("> ")
+		} else {
+			b.WriteString("  ")
+		}
+		b.WriteString(line)
+		if i < len(lines)-1 {
+			b.WriteByte('\n')
+		}
 	}
+	b.WriteString(t.cursor())
 	return b.String()
+}
+
+func (t textInput) cursor() string {
+	if t.focused {
+		return "▌"
+	}
+	return ""
 }
