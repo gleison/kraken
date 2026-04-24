@@ -9,6 +9,12 @@ import (
 
 var placeholderStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#6B7280")).Italic(true)
 
+const (
+	tabSize     = 4
+	gutterFirst = "> "
+	gutterCont  = "  "
+)
+
 // textInput is a tiny multi-line editor used by the input screen.
 // It intentionally avoids the github.com/charmbracelet/bubbles dep:
 // all we need is append rune / newline / backspace / clear / render.
@@ -47,9 +53,32 @@ func (t *textInput) Update(msg tea.KeyMsg) {
 		if len(t.value) > 0 {
 			t.value = t.value[:len(t.value)-1]
 		}
+	case tea.KeyTab:
+		t.value = appendNormalized(t.value, []rune{'\t'})
 	case tea.KeyRunes, tea.KeySpace:
-		t.value = append(t.value, msg.Runes...)
+		t.value = appendNormalized(t.value, msg.Runes)
 	}
+}
+
+// appendNormalized appends runes to the buffer, expanding tabs to spaces and
+// dropping carriage returns. Pasted content frequently carries both, and if
+// tabs reach the renderer, their cell width (~8) would blow past the rune
+// count used for wrapping and let lipgloss re-wrap our lines, producing
+// misaligned borders.
+func appendNormalized(dst, src []rune) []rune {
+	for _, r := range src {
+		switch r {
+		case '\t':
+			for i := 0; i < tabSize; i++ {
+				dst = append(dst, ' ')
+			}
+		case '\r':
+			// drop
+		default:
+			dst = append(dst, r)
+		}
+	}
+	return dst
 }
 
 // View renders the input, soft-wrapping long lines at the configured width
@@ -57,42 +86,52 @@ func (t *textInput) Update(msg tea.KeyMsg) {
 // the buffer.
 func (t textInput) View() string {
 	if len(t.value) == 0 {
-		return "> " + placeholderStyle.Render(t.placeholder) + t.cursor()
+		return gutterFirst + placeholderStyle.Render(t.placeholder) + t.cursor()
 	}
 
-	const gutterFirst = "> "
-	const gutterCont = "  "
-
-	innerWidth := t.width - len(gutterFirst)
+	innerWidth := t.width - lipgloss.Width(gutterFirst)
 	if innerWidth < 10 {
 		innerWidth = 10
 	}
 
-	logicalLines := strings.Split(string(t.value), "\n")
 	var visualLines []string
-	for i, line := range logicalLines {
+	for i, logical := range strings.Split(string(t.value), "\n") {
 		prefix := gutterCont
 		if i == 0 {
 			prefix = gutterFirst
 		}
-
-		runes := []rune(line)
-		if len(runes) == 0 {
-			visualLines = append(visualLines, prefix)
-			continue
-		}
-		for len(runes) > 0 {
-			take := innerWidth
-			if take > len(runes) {
-				take = len(runes)
-			}
-			visualLines = append(visualLines, prefix+string(runes[:take]))
-			runes = runes[take:]
-			prefix = gutterCont
-		}
+		visualLines = append(visualLines, wrapByCells(logical, prefix, innerWidth)...)
 	}
 
 	return strings.Join(visualLines, "\n") + t.cursor()
+}
+
+// wrapByCells breaks a logical line into visual lines at innerWidth cells.
+// The first produced line uses firstPrefix; continuations use gutterCont so
+// they align under the "> " prompt.
+func wrapByCells(line, firstPrefix string, innerWidth int) []string {
+	if line == "" {
+		return []string{firstPrefix}
+	}
+
+	var out []string
+	prefix := firstPrefix
+	cells := 0
+	start := 0
+	runes := []rune(line)
+
+	for i, r := range runes {
+		w := lipgloss.Width(string(r))
+		if cells+w > innerWidth && i > start {
+			out = append(out, prefix+string(runes[start:i]))
+			prefix = gutterCont
+			start = i
+			cells = 0
+		}
+		cells += w
+	}
+	out = append(out, prefix+string(runes[start:]))
+	return out
 }
 
 func (t textInput) cursor() string {
