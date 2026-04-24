@@ -52,27 +52,47 @@ func (t *textInput) Update(msg tea.KeyMsg) {
 	}
 }
 
-// View renders the input, preserving embedded newlines.
+// View renders the input, soft-wrapping long lines at the configured width
+// and preserving explicit newlines. The cursor always sits at the end of
+// the buffer.
 func (t textInput) View() string {
 	if len(t.value) == 0 {
 		return "> " + placeholderStyle.Render(t.placeholder) + t.cursor()
 	}
 
-	lines := strings.Split(string(t.value), "\n")
-	var b strings.Builder
-	for i, line := range lines {
+	const gutterFirst = "> "
+	const gutterCont = "  "
+
+	innerWidth := t.width - len(gutterFirst)
+	if innerWidth < 10 {
+		innerWidth = 10
+	}
+
+	logicalLines := strings.Split(string(t.value), "\n")
+	var visualLines []string
+	for i, line := range logicalLines {
+		prefix := gutterCont
 		if i == 0 {
-			b.WriteString("> ")
-		} else {
-			b.WriteString("  ")
+			prefix = gutterFirst
 		}
-		b.WriteString(line)
-		if i < len(lines)-1 {
-			b.WriteByte('\n')
+
+		runes := []rune(line)
+		if len(runes) == 0 {
+			visualLines = append(visualLines, prefix)
+			continue
+		}
+		for len(runes) > 0 {
+			take := innerWidth
+			if take > len(runes) {
+				take = len(runes)
+			}
+			visualLines = append(visualLines, prefix+string(runes[:take]))
+			runes = runes[take:]
+			prefix = gutterCont
 		}
 	}
-	b.WriteString(t.cursor())
-	return b.String()
+
+	return strings.Join(visualLines, "\n") + t.cursor()
 }
 
 func (t textInput) cursor() string {

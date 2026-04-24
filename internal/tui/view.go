@@ -37,8 +37,19 @@ func (m Model) viewInput() string {
 	var b strings.Builder
 	b.WriteString(m.styles.Label.Render("Objetivo"))
 	b.WriteString("\n")
-	b.WriteString(m.styles.Box.Render(m.input.View()))
+	b.WriteString(m.inputBox().Render(m.input.View()))
 	return b.String()
+}
+
+// inputBox returns a Box style sized to the current terminal width so the
+// editor gets a full-width writing surface that grows in height as the user
+// adds (or wraps) lines.
+func (m Model) inputBox() lipgloss.Style {
+	box := m.styles.Box
+	if m.width > 6 {
+		box = box.Width(m.width - 4) // 2 border + 2 padding
+	}
+	return box
 }
 
 func (m Model) viewRunning() string {
