@@ -3,20 +3,12 @@ package tui
 
 import (
 	"context"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/gleison/kraken/internal/domain"
 	"github.com/gleison/kraken/internal/orchestrator"
 )
-
-// pasteKeyGap is the maximum interval between consecutive key events that
-// can plausibly come from a human typing. Anything tighter is treated as
-// part of a paste, so an Enter inside such a burst becomes a newline
-// instead of submitting. Pastes deliver events in microseconds; humans
-// rarely reach 30 cps.
-const pasteKeyGap = 30 * time.Millisecond
 
 // phase enumerates the screens of the TUI.
 type phase int
@@ -45,10 +37,6 @@ type Model struct {
 
 	width  int
 	height int
-
-	// lastKeyAt is the timestamp of the previous key event, used to
-	// detect paste bursts heuristically.
-	lastKeyAt time.Time
 }
 
 // eventMsg wraps an orchestrator.Event into a Bubble Tea message.
@@ -63,7 +51,7 @@ func NewModel(orch *orchestrator.Orchestrator) Model {
 		orch:   orch,
 		styles: DefaultStyles(),
 		phase:  phaseInput,
-		input:  newTextInput("Descreva a tarefa — Enter envia, Alt+Enter quebra linha..."),
+		input:  newTextInput("Descreva a tarefa — Ctrl+D envia, Enter quebra linha..."),
 	}
 }
 

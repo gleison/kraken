@@ -147,7 +147,7 @@ func (m Model) taskDecoration(t *domain.Task) (string, lipgloss.Style) {
 func (m Model) footer() string {
 	switch m.phase {
 	case phaseInput:
-		return m.styles.Help.Render("enter: executar  •  alt+enter: nova linha  •  ctrl+c: sair")
+		return m.styles.Help.Render("ctrl+d: executar  •  enter: nova linha  •  ctrl+c: sair")
 	case phaseRunning:
 		return m.styles.Help.Render("ctrl+c: sair")
 	case phaseDone, phaseError:

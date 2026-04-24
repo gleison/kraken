@@ -2,7 +2,6 @@ package tui
 
 import (
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -41,22 +40,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	}
 
-	now := time.Now()
-	prev := m.lastKeyAt
-	m.lastKeyAt = now
-
 	switch m.phase {
 	case phaseInput:
+		// Enter always inserts a newline so that pasted content never
+		// loses its line breaks (some terminals deliver paste line breaks
+		// as bare CR events indistinguishable from a typed Enter).
+		// Submit is an explicit, non-ambiguous chord: Ctrl+D.
 		if msg.Type == tea.KeyEnter {
-			// An Enter is a newline when it clearly belongs to a paste:
-			// bracketed-paste flag, Alt modifier, or a burst tighter than
-			// any human can type (see pasteKeyGap). Otherwise it submits.
-			fromPaste := msg.Alt || msg.Paste ||
-				(!prev.IsZero() && now.Sub(prev) < pasteKeyGap)
-			if fromPaste {
-				m.input.Newline()
-				return m, nil
-			}
+			m.input.Newline()
+			return m, nil
+		}
+		if msg.Type == tea.KeyCtrlD {
 			goal := strings.TrimSpace(m.input.Value())
 			if goal == "" {
 				return m, nil
