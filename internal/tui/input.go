@@ -66,19 +66,23 @@ func (t *textInput) Update(msg tea.KeyMsg) {
 }
 
 // appendNormalized appends runes to the buffer, expanding tabs to spaces and
-// dropping carriage returns. Pasted content frequently carries both, and if
-// tabs reach the renderer, their cell width (~8) would blow past the rune
-// count used for wrapping and let lipgloss re-wrap our lines, producing
-// misaligned borders.
+// folding any line-ending convention (LF, CR, CRLF) to a single '\n'. Pasted
+// content frequently uses CR or CRLF, and treating CR as a literal character
+// (or dropping it) would either confuse the renderer or silently lose the
+// newlines from the paste.
 func appendNormalized(dst, src []rune) []rune {
-	for _, r := range src {
+	for i := 0; i < len(src); i++ {
+		r := src[i]
 		switch r {
 		case '\t':
-			for i := 0; i < tabSize; i++ {
+			for j := 0; j < tabSize; j++ {
 				dst = append(dst, ' ')
 			}
 		case '\r':
-			// drop
+			dst = append(dst, '\n')
+			if i+1 < len(src) && src[i+1] == '\n' {
+				i++ // collapse CRLF
+			}
 		default:
 			dst = append(dst, r)
 		}
