@@ -8,7 +8,7 @@
 //
 //	OPENAI_API_KEY   API key (required for real runs; if empty, uses mock)
 //	OPENAI_BASE_URL  Base URL, default https://api.openai.com/v1
-//	KRAKEN_MODEL     Model name, default gpt-4o-mini
+//	OPENAI_MODEL     Model name, default gpt-4o-mini
 package main
 
 import (
@@ -42,6 +42,6 @@ func buildClient() llm.Client {
 	return llm.NewOpenAI(llm.Config{
 		APIKey:  apiKey,
 		BaseURL: os.Getenv("OPENAI_BASE_URL"),
-		Model:   os.Getenv("KRAKEN_MODEL"),
+		Model:   os.Getenv("OPENAI_MODEL"),
 	})
 }

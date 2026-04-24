@@ -3,8 +3,6 @@ package tui
 import (
 	"strings"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/gleison/kraken/internal/orchestrator"
@@ -23,11 +21,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKey(msg)
 
-	case spinner.TickMsg:
+	case spinnerTickMsg:
 		if m.phase == phaseRunning {
-			var cmd tea.Cmd
-			m.spinner, cmd = m.spinner.Update(msg)
-			return m, cmd
+			m.spinnerFrame++
+			return m, tickSpinner()
 		}
 		return m, nil
 
@@ -35,23 +32,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleEvent(msg)
 	}
 
-	if m.phase == phaseInput {
-		var cmd tea.Cmd
-		m.input, cmd = m.input.Update(msg)
-		return m, cmd
-	}
 	return m, nil
 }
 
 func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyCtrlC:
+	if msg.Type == tea.KeyCtrlC {
 		return m, tea.Quit
 	}
 
 	switch m.phase {
 	case phaseInput:
-		if msg.Type == tea.KeyEnter && !msg.Alt {
+		if msg.Type == tea.KeyEnter {
 			goal := strings.TrimSpace(m.input.Value())
 			if goal == "" {
 				return m, nil
@@ -59,9 +50,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			cmd := m.startRun(goal)
 			return m, cmd
 		}
-		var cmd tea.Cmd
-		m.input, cmd = m.input.Update(msg)
-		return m, cmd
+		m.input.Update(msg)
+		return m, nil
 
 	case phaseDone, phaseError:
 		if msg.Type == tea.KeyEnter || msg.String() == "r" {
@@ -71,7 +61,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.plan = nil
 			m.final = ""
 			m.err = nil
-			return m, textarea.Blink
+			return m, nil
 		}
 		if msg.String() == "q" {
 			return m, tea.Quit
@@ -82,7 +72,6 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m Model) handleEvent(msg eventMsg) (tea.Model, tea.Cmd) {
 	if !msg.ok {
-		// Channel closed without terminal event: treat as done if we have a plan.
 		if m.err == nil && m.phase == phaseRunning {
 			m.phase = phaseDone
 		}

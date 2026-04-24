@@ -4,8 +4,6 @@ package tui
 import (
 	"context"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textarea"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/gleison/kraken/internal/domain"
@@ -25,11 +23,11 @@ const (
 // Model holds all UI state. It depends on the orchestrator only through
 // its public API (ports-and-adapters: TUI is a driver adapter).
 type Model struct {
-	orch    *orchestrator.Orchestrator
-	styles  Styles
-	phase   phase
-	input   textarea.Model
-	spinner spinner.Model
+	orch         *orchestrator.Orchestrator
+	styles       Styles
+	phase        phase
+	input        textInput
+	spinnerFrame int
 
 	goal   string
 	plan   *domain.Plan
@@ -49,40 +47,30 @@ type eventMsg struct {
 
 // NewModel builds the initial UI state.
 func NewModel(orch *orchestrator.Orchestrator) Model {
-	ta := textarea.New()
-	ta.Placeholder = "Descreva uma tarefa complexa... (Enter para executar, Shift+Enter para nova linha)"
-	ta.Focus()
-	ta.SetHeight(4)
-	ta.ShowLineNumbers = false
-	ta.CharLimit = 2000
-
-	sp := spinner.New()
-	sp.Spinner = spinner.Dot
-
 	return Model{
-		orch:    orch,
-		styles:  DefaultStyles(),
-		phase:   phaseInput,
-		input:   ta,
-		spinner: sp,
+		orch:   orch,
+		styles: DefaultStyles(),
+		phase:  phaseInput,
+		input:  newTextInput("Descreva uma tarefa complexa e pressione Enter..."),
 	}
 }
 
 // Init satisfies tea.Model.
 func (m Model) Init() tea.Cmd {
-	return textarea.Blink
+	return nil
 }
 
 // startRun kicks off the orchestrator and returns a command that reads the
-// first event from the channel.
+// first event from the channel plus a spinner tick.
 func (m *Model) startRun(goal string) tea.Cmd {
 	m.goal = goal
 	m.plan = nil
 	m.final = ""
 	m.err = nil
 	m.phase = phaseRunning
+	m.spinnerFrame = 0
 	m.events = m.orch.Run(context.Background(), goal)
-	return tea.Batch(m.spinner.Tick, waitForEvent(m.events))
+	return tea.Batch(tickSpinner(), waitForEvent(m.events))
 }
 
 // waitForEvent returns a command that receives one event from the channel.

@@ -43,7 +43,7 @@ func (m Model) viewInput() string {
 
 func (m Model) viewRunning() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s %s\n\n", m.spinner.View(), m.phaseHeadline())
+	fmt.Fprintf(&b, "%s %s\n\n", spinnerView(m.spinnerFrame), m.phaseHeadline())
 
 	if m.plan == nil {
 		b.WriteString(m.styles.Subtitle.Render("Planejando tarefas..."))
@@ -123,7 +123,7 @@ func (m Model) renderTask(t *domain.Task) string {
 func (m Model) taskDecoration(t *domain.Task) (string, lipgloss.Style) {
 	switch t.Status {
 	case domain.StatusRunning:
-		return m.spinner.View(), m.styles.Running
+		return spinnerView(m.spinnerFrame), m.styles.Running
 	case domain.StatusDone:
 		return "✓", m.styles.Done
 	case domain.StatusFailed:

@@ -50,7 +50,7 @@ go run ./cmd/kraken
 # Ollama local
 export OPENAI_API_KEY=ollama
 export OPENAI_BASE_URL=http://localhost:11434/v1
-export KRAKEN_MODEL=llama3.1
+export OPENAI_MODEL=llama3.1
 go run ./cmd/kraken
 
 # modo demo (sem API key → LLM mock determinístico)
@@ -63,7 +63,7 @@ Variáveis:
 |-------------------|-------------------------------|------------------------------------|
 | `OPENAI_API_KEY`  | —                             | Chave de API. Se vazio, usa mock.  |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1`   | Base do endpoint compatível.       |
-| `KRAKEN_MODEL`    | `gpt-4o-mini`                 | Nome do modelo.                    |
+| `OPENAI_MODEL`    | `gpt-4o-mini`                 | Nome do modelo.                    |
 
 ### Atalhos da TUI
 
