@@ -49,8 +49,8 @@ func (p *Planner) Plan(ctx context.Context, goal string) (*domain.Plan, error) {
 		Messages: []llm.Message{
 			{Role: llm.RoleUser, Content: goal},
 		},
-		MaxTokens: 1024,
-		JSONMode:  true,
+		MaxTokens:  1024,
+		JSONSchema: plannerSchema(),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("planner: llm call: %w", err)
@@ -135,4 +135,36 @@ func snippet(s string, max int) string {
 		return s
 	}
 	return s[:max] + "..."
+}
+
+// plannerSchema returns the JSON Schema describing the Plan structure.
+// Providers that honor it (via response_format=json_schema) will produce
+// valid JSON; others degrade gracefully to json_object or plain text via
+// the OpenAI adapter's cascade.
+func plannerSchema() *llm.JSONSchema {
+	return &llm.JSONSchema{
+		Name:   "plan",
+		Strict: true,
+		Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"tasks": map[string]any{
+					"type":     "array",
+					"minItems": 2,
+					"maxItems": 6,
+					"items": map[string]any{
+						"type": "object",
+						"properties": map[string]any{
+							"title":       map[string]any{"type": "string"},
+							"instruction": map[string]any{"type": "string"},
+						},
+						"required":             []string{"title", "instruction"},
+						"additionalProperties": false,
+					},
+				},
+			},
+			"required":             []string{"tasks"},
+			"additionalProperties": false,
+		},
+	}
 }

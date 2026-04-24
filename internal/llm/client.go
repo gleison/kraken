@@ -18,15 +18,22 @@ type Message struct {
 	Content string
 }
 
+// JSONSchema describes a Structured Output contract that the provider
+// must honor. When set, the model's response is constrained to match Schema.
+// Schema can be any value that marshals to a valid JSON Schema (map, struct,
+// json.RawMessage, etc.).
+type JSONSchema struct {
+	Name   string
+	Strict bool
+	Schema any
+}
+
 // Request is a provider-agnostic completion request.
 type Request struct {
-	System    string
-	Messages  []Message
-	MaxTokens int
-	// JSONMode asks the provider to constrain its output to a valid JSON
-	// object. Used by the planner to avoid parsing wrappers or stray prose.
-	// Providers that don't support it simply ignore the flag.
-	JSONMode bool
+	System     string
+	Messages   []Message
+	MaxTokens  int
+	JSONSchema *JSONSchema
 }
 
 // Response carries the text returned by the provider.
