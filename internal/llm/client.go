@@ -23,6 +23,10 @@ type Request struct {
 	System    string
 	Messages  []Message
 	MaxTokens int
+	// JSONMode asks the provider to constrain its output to a valid JSON
+	// object. Used by the planner to avoid parsing wrappers or stray prose.
+	// Providers that don't support it simply ignore the flag.
+	JSONMode bool
 }
 
 // Response carries the text returned by the provider.

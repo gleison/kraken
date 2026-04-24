@@ -65,10 +65,15 @@ type oaiMessage struct {
 	Content string `json:"content"`
 }
 
+type oaiResponseFormat struct {
+	Type string `json:"type"`
+}
+
 type oaiRequest struct {
-	Model     string       `json:"model"`
-	Messages  []oaiMessage `json:"messages"`
-	MaxTokens int          `json:"max_tokens,omitempty"`
+	Model          string             `json:"model"`
+	Messages       []oaiMessage       `json:"messages"`
+	MaxTokens      int                `json:"max_tokens,omitempty"`
+	ResponseFormat *oaiResponseFormat `json:"response_format,omitempty"`
 }
 
 type oaiResponse struct {
@@ -100,11 +105,16 @@ func (o *OpenAI) Complete(ctx context.Context, req Request) (*Response, error) {
 		maxTokens = defaultMaxTokens
 	}
 
-	body, err := json.Marshal(oaiRequest{
+	payload := oaiRequest{
 		Model:     o.model,
 		Messages:  messages,
 		MaxTokens: maxTokens,
-	})
+	}
+	if req.JSONMode {
+		payload.ResponseFormat = &oaiResponseFormat{Type: "json_object"}
+	}
+
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("openai: marshal: %w", err)
 	}

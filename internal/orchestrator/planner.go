@@ -50,6 +50,7 @@ func (p *Planner) Plan(ctx context.Context, goal string) (*domain.Plan, error) {
 			{Role: llm.RoleUser, Content: goal},
 		},
 		MaxTokens: 1024,
+		JSONMode:  true,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("planner: llm call: %w", err)
@@ -57,7 +58,7 @@ func (p *Planner) Plan(ctx context.Context, goal string) (*domain.Plan, error) {
 
 	payload, err := parsePlannerPayload(resp.Content)
 	if err != nil {
-		return nil, fmt.Errorf("planner: parse response: %w", err)
+		return nil, fmt.Errorf("planner: parse response: %w (raw=%s)", err, snippet(resp.Content, 200))
 	}
 	if len(payload.Tasks) == 0 {
 		return nil, fmt.Errorf("planner: no tasks returned")
@@ -124,4 +125,14 @@ func extractJSONObject(s string) string {
 		}
 	}
 	return ""
+}
+
+// snippet returns a single-line, length-capped preview of s for use in
+// error messages when parsing fails.
+func snippet(s string, max int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
 }
