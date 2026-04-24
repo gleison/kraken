@@ -55,6 +55,11 @@ func (t *textInput) Update(msg tea.KeyMsg) {
 		}
 	case tea.KeyTab:
 		t.value = appendNormalized(t.value, []rune{'\t'})
+	case tea.KeyCtrlJ:
+		// LF byte (0x0A) from a paste when the terminal didn't emit
+		// bracketed-paste markers. Bubble Tea maps it to KeyCtrlJ, so
+		// without this case embedded newlines would be silently dropped.
+		t.value = append(t.value, '\n')
 	case tea.KeyRunes, tea.KeySpace:
 		t.value = appendNormalized(t.value, msg.Runes)
 	}

@@ -43,8 +43,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.phase {
 	case phaseInput:
 		if msg.Type == tea.KeyEnter {
-			// Alt+Enter inserts a newline; plain Enter submits.
-			if msg.Alt {
+			// Alt+Enter (user) or Enter inside a bracketed paste
+			// insert a newline; a bare Enter typed by the user submits.
+			if msg.Alt || msg.Paste {
 				m.input.Newline()
 				return m, nil
 			}
