@@ -1,11 +1,14 @@
 // Command kraken runs the TUI orchestrator.
 //
-// Usage:
+// The orchestrator talks to any endpoint that implements the OpenAI
+// Chat Completions protocol (OpenAI, Azure OpenAI, Groq, Together,
+// OpenRouter, Ollama, vLLM, LM Studio, ...).
 //
-//	ANTHROPIC_API_KEY=... kraken
+// Configuration via environment variables:
 //
-// If ANTHROPIC_API_KEY is unset, a mock LLM is used so the UI can be
-// explored without making network calls.
+//	OPENAI_API_KEY   API key (required for real runs; if empty, uses mock)
+//	OPENAI_BASE_URL  Base URL, default https://api.openai.com/v1
+//	KRAKEN_MODEL     Model name, default gpt-4o-mini
 package main
 
 import (
@@ -31,11 +34,14 @@ func main() {
 }
 
 func buildClient() llm.Client {
-	apiKey := os.Getenv("ANTHROPIC_API_KEY")
+	apiKey := os.Getenv("OPENAI_API_KEY")
 	if apiKey == "" {
-		fmt.Fprintln(os.Stderr, "kraken: ANTHROPIC_API_KEY not set, using mock LLM")
+		fmt.Fprintln(os.Stderr, "kraken: OPENAI_API_KEY not set, using mock LLM")
 		return llm.NewMock()
 	}
-	model := os.Getenv("KRAKEN_MODEL")
-	return llm.NewAnthropic(apiKey, model)
+	return llm.NewOpenAI(llm.Config{
+		APIKey:  apiKey,
+		BaseURL: os.Getenv("OPENAI_BASE_URL"),
+		Model:   os.Getenv("KRAKEN_MODEL"),
+	})
 }

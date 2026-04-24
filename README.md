@@ -37,19 +37,33 @@ Goal ──► Planner ──► Plan (tarefas simples)
 
 ## Uso
 
+A conexão com a LLM usa o protocolo **Chat Completions da OpenAI**, que é o de
+facto implementado pela maioria das ferramentas (OpenAI, Azure OpenAI, Groq,
+Together, OpenRouter, Ollama, vLLM, LM Studio...). Basta apontar `OPENAI_BASE_URL`
+pro endpoint desejado.
+
 ```bash
-# com API real
-export ANTHROPIC_API_KEY=sk-ant-...
+# OpenAI
+export OPENAI_API_KEY=sk-...
+go run ./cmd/kraken
+
+# Ollama local
+export OPENAI_API_KEY=ollama
+export OPENAI_BASE_URL=http://localhost:11434/v1
+export KRAKEN_MODEL=llama3.1
 go run ./cmd/kraken
 
 # modo demo (sem API key → LLM mock determinístico)
 go run ./cmd/kraken
 ```
 
-Variáveis opcionais:
+Variáveis:
 
-- `ANTHROPIC_API_KEY` — chave da API Anthropic. Sem ela, usa-se o mock.
-- `KRAKEN_MODEL` — modelo Anthropic (default: `claude-opus-4-7`).
+| Variável          | Default                       | Descrição                          |
+|-------------------|-------------------------------|------------------------------------|
+| `OPENAI_API_KEY`  | —                             | Chave de API. Se vazio, usa mock.  |
+| `OPENAI_BASE_URL` | `https://api.openai.com/v1`   | Base do endpoint compatível.       |
+| `KRAKEN_MODEL`    | `gpt-4o-mini`                 | Nome do modelo.                    |
 
 ### Atalhos da TUI
 
