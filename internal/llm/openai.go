@@ -80,10 +80,33 @@ type oaiResponse struct {
 	Choices []struct {
 		Message oaiMessage `json:"message"`
 	} `json:"choices"`
-	Error *struct {
+	Error json.RawMessage `json:"error,omitempty"`
+}
+
+// parseError extracts a human-readable message from the error field,
+// which different providers shape differently: an object with "message",
+// an object with "code"/"message", or a bare string.
+func parseError(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var obj struct {
 		Message string `json:"message"`
-		Type    string `json:"type"`
-	} `json:"error,omitempty"`
+		Code    string `json:"code"`
+	}
+	if err := json.Unmarshal(raw, &obj); err == nil {
+		switch {
+		case obj.Message != "":
+			return obj.Message
+		case obj.Code != "":
+			return obj.Code
+		}
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil && s != "" {
+		return s
+	}
+	return string(raw)
 }
 
 // Complete implements llm.Client.
@@ -140,10 +163,10 @@ func (o *OpenAI) Complete(ctx context.Context, req Request) (*Response, error) {
 
 	var parsed oaiResponse
 	if err := json.Unmarshal(raw, &parsed); err != nil {
-		return nil, fmt.Errorf("openai: decode: %w (body=%s)", err, truncate(string(raw), 500))
+		return nil, fmt.Errorf("openai: decode: %w (status=%d body=%s)", err, resp.StatusCode, truncate(string(raw), 500))
 	}
-	if parsed.Error != nil {
-		return nil, fmt.Errorf("openai: %s", parsed.Error.Message)
+	if msg := parseError(parsed.Error); msg != "" {
+		return nil, fmt.Errorf("openai: %s", msg)
 	}
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("openai: http %d: %s", resp.StatusCode, truncate(string(raw), 500))
