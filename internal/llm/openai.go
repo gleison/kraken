@@ -16,7 +16,7 @@ import (
 const (
 	defaultBaseURL   = "https://api.openai.com/v1"
 	defaultModel     = "gpt-4o-mini"
-	defaultMaxTokens = 1024
+	defaultMaxTokens = 4096
 	// defaultTimeout is generous on purpose: local models (e.g. Gemma 2B
 	// behind llama.cpp/Ollama) often need several minutes to emit long
 	// code outputs. Tighten via Config.Timeout / OPENAI_TIMEOUT when
@@ -39,10 +39,11 @@ const (
 // OpenAI Chat Completions protocol (OpenAI, Azure, Groq, Together,
 // OpenRouter, Ollama, vLLM, LM Studio, ...).
 type OpenAI struct {
-	apiKey  string
-	baseURL string
-	model   string
-	http    *http.Client
+	apiKey    string
+	baseURL   string
+	model     string
+	maxTokens int
+	http      *http.Client
 
 	// minLevel is the lowest-strictness response_format this endpoint
 	// is known to accept. Starts at levelSchema and only ever increases.
@@ -52,10 +53,11 @@ type OpenAI struct {
 // Config groups the OpenAI adapter parameters.
 // Zero-value fields fall back to library defaults.
 type Config struct {
-	APIKey  string
-	BaseURL string
-	Model   string
-	Timeout time.Duration
+	APIKey    string
+	BaseURL   string
+	Model     string
+	Timeout   time.Duration
+	MaxTokens int
 }
 
 // NewOpenAI builds the client. Only APIKey is strictly required.
@@ -63,6 +65,10 @@ func NewOpenAI(cfg Config) *OpenAI {
 	baseURL := cfg.BaseURL
 	if baseURL == "" {
 		baseURL = defaultBaseURL
+	}
+	maxTokens := cfg.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = defaultMaxTokens
 	}
 	model := cfg.Model
 	if model == "" {
@@ -73,10 +79,11 @@ func NewOpenAI(cfg Config) *OpenAI {
 		timeout = defaultTimeout
 	}
 	return &OpenAI{
-		apiKey:  cfg.APIKey,
-		baseURL: strings.TrimRight(baseURL, "/"),
-		model:   model,
-		http:    &http.Client{Timeout: timeout},
+		apiKey:    cfg.APIKey,
+		baseURL:   strings.TrimRight(baseURL, "/"),
+		model:     model,
+		maxTokens: maxTokens,
+		http:      &http.Client{Timeout: timeout},
 	}
 }
 
@@ -175,7 +182,7 @@ func (o *OpenAI) doRequest(ctx context.Context, req Request, level formatLevel) 
 
 	maxTokens := req.MaxTokens
 	if maxTokens <= 0 {
-		maxTokens = defaultMaxTokens
+		maxTokens = o.maxTokens
 	}
 
 	payload := oaiRequest{

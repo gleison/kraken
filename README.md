@@ -61,10 +61,11 @@ Variáveis:
 
 | Variável          | Default                       | Descrição                          |
 |-------------------|-------------------------------|------------------------------------|
-| `OPENAI_API_KEY`  | —                             | Chave de API. Se vazio, usa mock.  |
-| `OPENAI_BASE_URL` | `https://api.openai.com/v1`   | Base do endpoint compatível.       |
-| `OPENAI_MODEL`    | `gpt-4o-mini`                 | Nome do modelo.                    |
-| `OPENAI_TIMEOUT`  | `600`                         | Timeout por requisição (segundos). |
+| `OPENAI_API_KEY`     | —                             | Chave de API. Se vazio, usa mock.   |
+| `OPENAI_BASE_URL`    | `https://api.openai.com/v1`   | Base do endpoint compatível.        |
+| `OPENAI_MODEL`       | `gpt-4o-mini`                 | Nome do modelo.                     |
+| `OPENAI_TIMEOUT`     | `600`                         | Timeout por requisição (segundos).  |
+| `OPENAI_MAX_TOKENS`  | `4096`                        | Tokens máximos por resposta.        |
 
 ### Atalhos da TUI
 

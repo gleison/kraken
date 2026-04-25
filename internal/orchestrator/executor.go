@@ -32,9 +32,11 @@ func (e *Executor) Execute(ctx context.Context, goal string, task *domain.Task, 
 
 	prompt := buildExecutorPrompt(goal, task, previous)
 	resp, err := e.client.Complete(ctx, llm.Request{
-		System:    executorSystem,
-		Messages:  []llm.Message{{Role: llm.RoleUser, Content: prompt}},
-		MaxTokens: 1024,
+		System:   executorSystem,
+		Messages: []llm.Message{{Role: llm.RoleUser, Content: prompt}},
+		// MaxTokens left at 0 → adapter falls back to its instance
+		// default (Config.MaxTokens / OPENAI_MAX_TOKENS), so code
+		// generation isn't capped at the planner's smaller budget.
 	})
 	if err != nil {
 		task.MarkFailed(err)
