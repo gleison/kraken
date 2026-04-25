@@ -149,10 +149,6 @@ func parseError(raw json.RawMessage) string {
 // → none) until the endpoint accepts one, then remembers that level for
 // subsequent calls on this client.
 func (o *OpenAI) Complete(ctx context.Context, req Request) (*Response, error) {
-	if o.apiKey == "" {
-		return nil, errors.New("openai: missing API key")
-	}
-
 	if req.JSONSchema == nil {
 		return o.doRequest(ctx, req, levelNone)
 	}
@@ -204,7 +200,9 @@ func (o *OpenAI) doRequest(ctx context.Context, req Request, level formatLevel) 
 		return nil, fmt.Errorf("openai: new request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("Authorization", "Bearer "+o.apiKey)
+	if o.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+o.apiKey)
+	}
 
 	log.Printf("openai: POST %s (level=%d, msgs=%d, max_tokens=%d, body_bytes=%d)",
 		url, level, len(payload.Messages), maxTokens, len(body))

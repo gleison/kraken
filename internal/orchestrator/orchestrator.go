@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/gleison/kraken/internal/domain"
@@ -39,17 +40,21 @@ func (o *Orchestrator) Run(ctx context.Context, goal string) <-chan Event {
 			}
 		}
 
+		log.Printf("orchestrator: run start (goal_bytes=%d)", len(goal))
 		send(Event{Type: EventPlanning})
 
 		plan, err := o.planner.Plan(ctx, goal)
 		if err != nil {
+			log.Printf("orchestrator: planning failed: %v", err)
 			send(Event{Type: EventRunFailed, Err: fmt.Errorf("planning: %w", err)})
 			return
 		}
+		log.Printf("orchestrator: plan ready (%d tasks)", len(plan.Tasks))
 		send(Event{Type: EventPlanReady, Plan: plan})
 
 		for _, t := range plan.Tasks {
 			if ctx.Err() != nil {
+				log.Printf("orchestrator: ctx cancelled before task %s: %v", t.ID, ctx.Err())
 				send(Event{Type: EventRunFailed, Err: ctx.Err()})
 				return
 			}
@@ -63,6 +68,7 @@ func (o *Orchestrator) Run(ctx context.Context, goal string) <-chan Event {
 			send(Event{Type: EventTaskCompleted, Task: t})
 		}
 
+		log.Printf("orchestrator: run complete")
 		send(Event{Type: EventRunCompleted, Plan: plan, Final: summarize(plan)})
 	}()
 

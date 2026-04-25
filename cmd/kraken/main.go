@@ -70,14 +70,23 @@ func setupLog() func() {
 
 func buildClient() llm.Client {
 	apiKey := os.Getenv("OPENAI_API_KEY")
-	if apiKey == "" {
-		fmt.Fprintln(os.Stderr, "kraken: OPENAI_API_KEY not set, using mock LLM")
+	baseURL := os.Getenv("OPENAI_BASE_URL")
+	model := os.Getenv("OPENAI_MODEL")
+
+	// Mock only when the user has configured nothing. As soon as a key
+	// or a base URL is set, use the real client - local providers like
+	// LM Studio and Ollama don't require an API key.
+	if apiKey == "" && baseURL == "" {
+		log.Print("kraken: no OPENAI_API_KEY or OPENAI_BASE_URL, using mock LLM")
+		fmt.Fprintln(os.Stderr, "kraken: no OPENAI_API_KEY or OPENAI_BASE_URL set, using mock LLM")
 		return llm.NewMock()
 	}
+	log.Printf("kraken: using OpenAI client (base=%q model=%q has_key=%t)",
+		baseURL, model, apiKey != "")
 	return llm.NewOpenAI(llm.Config{
 		APIKey:    apiKey,
-		BaseURL:   os.Getenv("OPENAI_BASE_URL"),
-		Model:     os.Getenv("OPENAI_MODEL"),
+		BaseURL:   baseURL,
+		Model:     model,
 		Timeout:   parseTimeoutSeconds(os.Getenv("OPENAI_TIMEOUT")),
 		MaxTokens: parsePositiveInt("OPENAI_MAX_TOKENS", os.Getenv("OPENAI_MAX_TOKENS")),
 	})
