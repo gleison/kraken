@@ -171,7 +171,7 @@ func (m Model) viewError() string {
 		b.WriteString("\n")
 	}
 	if m.err != nil {
-		b.WriteString(m.styles.ErrorText.Render(m.err.Error()))
+		b.WriteString(m.styles.ErrorText.Render(wrap(m.err.Error(), m.contentWidth())))
 	}
 	return b.String()
 }

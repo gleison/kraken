@@ -86,16 +86,64 @@ func (p *Planner) Plan(ctx context.Context, goal string) (*domain.Plan, error) {
 }
 
 // parsePlannerPayload extracts JSON even if the model wrapped it in prose/fences.
+// Small models (Gemma 2B and friends) sometimes emit raw control characters
+// inside string values, so we transparently repair those before failing.
 func parsePlannerPayload(raw string) (*plannerPayload, error) {
 	s := extractJSONObject(raw)
 	if s == "" {
 		return nil, fmt.Errorf("no JSON object found in response")
 	}
 	var p plannerPayload
-	if err := json.Unmarshal([]byte(s), &p); err != nil {
+	if err := json.Unmarshal([]byte(s), &p); err == nil {
+		return &p, nil
+	}
+	repaired := repairJSONStrings(s)
+	if err := json.Unmarshal([]byte(repaired), &p); err != nil {
 		return nil, err
 	}
 	return &p, nil
+}
+
+// repairJSONStrings escapes raw control characters (LF, CR, TAB) that appear
+// inside JSON string literals. Strict JSON forbids them, but loose models
+// often emit them. Outside strings the input is left untouched.
+func repairJSONStrings(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	inStr := false
+	escaped := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if escaped {
+			b.WriteByte(c)
+			escaped = false
+			continue
+		}
+		if inStr {
+			switch c {
+			case '\\':
+				b.WriteByte(c)
+				escaped = true
+			case '"':
+				b.WriteByte(c)
+				inStr = false
+			case '\n':
+				b.WriteString(`\n`)
+			case '\r':
+				b.WriteString(`\r`)
+			case '\t':
+				b.WriteString(`\t`)
+			default:
+				b.WriteByte(c)
+			}
+		} else {
+			if c == '"' {
+				inStr = true
+			}
+			b.WriteByte(c)
+		}
+	}
+	return b.String()
 }
 
 // extractJSONObject returns the first balanced {...} block in s, or "".
