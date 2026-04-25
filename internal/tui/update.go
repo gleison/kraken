@@ -61,21 +61,67 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input.Update(msg)
 		return m, nil
 
-	case phaseDone, phaseError:
-		if msg.Type == tea.KeyEnter || msg.String() == "r" {
+	case phaseRunning, phaseDone, phaseError:
+		if m.handleScroll(msg) {
+			return m, nil
+		}
+		if m.phase == phaseRunning {
+			return m, nil
+		}
+		switch {
+		case msg.Type == tea.KeyEnter, msg.String() == "r":
 			m.phase = phaseInput
 			m.input.Reset()
 			m.input.Focus()
 			m.plan = nil
 			m.final = ""
 			m.err = nil
+			m.scrollOffset = 0
 			return m, nil
-		}
-		if msg.String() == "q" {
+		case msg.String() == "q":
 			return m, tea.Quit
 		}
 	}
 	return m, nil
+}
+
+// handleScroll updates scrollOffset for navigation keys and returns whether
+// the key was consumed. Clamping to the valid range happens in viewport().
+func (m *Model) handleScroll(msg tea.KeyMsg) bool {
+	switch msg.String() {
+	case "up", "k":
+		if m.scrollOffset > 0 {
+			m.scrollOffset--
+		}
+		return true
+	case "down", "j":
+		m.scrollOffset++
+		return true
+	case "pgup":
+		step := m.bodyHeight()
+		if step < 1 {
+			step = 1
+		}
+		m.scrollOffset -= step
+		if m.scrollOffset < 0 {
+			m.scrollOffset = 0
+		}
+		return true
+	case "pgdown":
+		step := m.bodyHeight()
+		if step < 1 {
+			step = 1
+		}
+		m.scrollOffset += step
+		return true
+	case "home", "g":
+		m.scrollOffset = 0
+		return true
+	case "end", "G":
+		m.scrollOffset = 1 << 20 // viewport() will clamp to maxOffset
+		return true
+	}
+	return false
 }
 
 func (m Model) handleEvent(msg eventMsg) (tea.Model, tea.Cmd) {

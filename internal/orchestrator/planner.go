@@ -16,6 +16,9 @@ const plannerSystem = `You are a planner. Your job is to break a complex goal in
 Rules:
 - Produce between 2 and 6 tasks.
 - Each task must be atomic, unambiguous and independently executable given the previous results.
+- The LAST task MUST produce the concrete deliverable the user actually asked for (the corrected code, the rewritten text, the final answer). It must say "Output ..." or equivalent — never just "summarize" or "describe".
+- When the goal is to modify code: include a task that identifies the exact root cause, then a final task that outputs the FULL corrected code (not a description, not a diff in prose) inside a fenced code block.
+- Do not invent or paraphrase the user's input. Preserve their content verbatim when handing it to subsequent tasks.
 - Return ONLY valid JSON, no prose, with the shape:
   {"tasks":[{"title":"...","instruction":"..."}]}
 - Write tasks in the same language as the user goal.`

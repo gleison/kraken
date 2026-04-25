@@ -37,6 +37,10 @@ type Model struct {
 
 	width  int
 	height int
+
+	// scrollOffset is the number of body lines hidden above the viewport.
+	// Used for scrolling through long plans/results.
+	scrollOffset int
 }
 
 // eventMsg wraps an orchestrator.Event into a Bubble Tea message.
@@ -51,7 +55,7 @@ func NewModel(orch *orchestrator.Orchestrator) Model {
 		orch:   orch,
 		styles: DefaultStyles(),
 		phase:  phaseInput,
-		input:  newTextInput("Descreva a tarefa — Ctrl+D envia, Enter quebra linha..."),
+		input:  newTextInput(""),
 	}
 }
 
@@ -69,6 +73,7 @@ func (m *Model) startRun(goal string) tea.Cmd {
 	m.err = nil
 	m.phase = phaseRunning
 	m.spinnerFrame = 0
+	m.scrollOffset = 0
 	m.events = m.orch.Run(context.Background(), goal)
 	return tea.Batch(tickSpinner(), waitForEvent(m.events))
 }

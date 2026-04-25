@@ -9,28 +9,96 @@ import (
 	"github.com/gleison/kraken/internal/domain"
 )
 
-// View renders the current state.
+// View renders the current state. The header and footer are always
+// visible; the body in between is fitted to the remaining vertical space
+// and can be scrolled with the keyboard when it overflows.
 func (m Model) View() string {
-	var b strings.Builder
+	header := m.styles.Title.Render("🐙 kraken") + "  " +
+		m.styles.Subtitle.Render("orquestrador de tarefas LLM")
 
-	b.WriteString(m.styles.Title.Render("🐙 kraken") + "  ")
-	b.WriteString(m.styles.Subtitle.Render("orquestrador de tarefas LLM"))
-	b.WriteString("\n\n")
+	body := m.renderBody()
+	footer := m.footer()
 
+	return header + "\n\n" + m.viewport(body) + "\n" + m.scrollHint() + footer
+}
+
+// renderBody returns the full (unscrolled) body for the current phase.
+func (m Model) renderBody() string {
 	switch m.phase {
 	case phaseInput:
-		b.WriteString(m.viewInput())
+		return m.viewInput()
 	case phaseRunning:
-		b.WriteString(m.viewRunning())
+		return m.viewRunning()
 	case phaseDone:
-		b.WriteString(m.viewDone())
+		return m.viewDone()
 	case phaseError:
-		b.WriteString(m.viewError())
+		return m.viewError()
 	}
+	return ""
+}
 
-	b.WriteString("\n")
-	b.WriteString(m.footer())
-	return b.String()
+// viewport slices body lines according to scrollOffset and the available
+// vertical space, so long plans/results don't push the footer offscreen.
+func (m Model) viewport(body string) string {
+	bodyHeight := m.bodyHeight()
+	if bodyHeight <= 0 {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	if len(lines) <= bodyHeight {
+		return body
+	}
+	maxOffset := len(lines) - bodyHeight
+	off := m.scrollOffset
+	if off < 0 {
+		off = 0
+	}
+	if off > maxOffset {
+		off = maxOffset
+	}
+	return strings.Join(lines[off:off+bodyHeight], "\n")
+}
+
+// bodyHeight is the number of body lines the terminal can show without
+// pushing the footer offscreen. 5 lines are reserved for header/footer/gaps.
+func (m Model) bodyHeight() int {
+	if m.height <= 0 {
+		return 0
+	}
+	const reserved = 5
+	if m.height <= reserved {
+		return 1
+	}
+	return m.height - reserved
+}
+
+// scrollHint shows arrows when there is content above or below the viewport.
+func (m Model) scrollHint() string {
+	bodyHeight := m.bodyHeight()
+	if bodyHeight <= 0 {
+		return ""
+	}
+	total := m.bodyLineCount()
+	if total <= bodyHeight {
+		return ""
+	}
+	var indicators []string
+	if m.scrollOffset > 0 {
+		indicators = append(indicators, "↑ mais acima")
+	}
+	if m.scrollOffset+bodyHeight < total {
+		indicators = append(indicators, "↓ mais abaixo")
+	}
+	if len(indicators) == 0 {
+		return ""
+	}
+	return m.styles.Help.Render(strings.Join(indicators, "  ")) + "\n"
+}
+
+// bodyLineCount returns the number of lines in the current body.
+// Used by scroll clamping and the scroll hint.
+func (m Model) bodyLineCount() int {
+	return len(strings.Split(m.renderBody(), "\n"))
 }
 
 func (m Model) viewInput() string {
@@ -75,7 +143,8 @@ func (m Model) viewDone() string {
 	if m.final != "" {
 		b.WriteString(m.styles.Label.Render("Resultado final"))
 		b.WriteString("\n")
-		b.WriteString(m.styles.Box.Render(m.styles.Result.Render(wrap(m.final, m.contentWidth()))))
+		rendered := strings.TrimRight(renderMarkdown(m.final, m.contentWidth()-2), "\n")
+		b.WriteString(m.inputBox().Render(rendered))
 	}
 	return b.String()
 }
@@ -149,9 +218,9 @@ func (m Model) footer() string {
 	case phaseInput:
 		return m.styles.Help.Render("ctrl+d: executar  •  enter: nova linha  •  ctrl+c: sair")
 	case phaseRunning:
-		return m.styles.Help.Render("ctrl+c: sair")
+		return m.styles.Help.Render("↑↓ pgup/pgdn: rolar  •  ctrl+c: sair")
 	case phaseDone, phaseError:
-		return m.styles.Help.Render("enter/r: nova tarefa  •  q: sair")
+		return m.styles.Help.Render("↑↓ pgup/pgdn: rolar  •  enter/r: nova tarefa  •  q: sair")
 	}
 	return ""
 }
