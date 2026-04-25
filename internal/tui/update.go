@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"log"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -20,6 +21,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		log.Printf("tui: key type=%d str=%q alt=%t paste=%t phase=%d",
+			msg.Type, msg.String(), msg.Alt, msg.Paste, m.phase)
 		return m.handleKey(msg)
 
 	case spinnerTickMsg:
@@ -30,6 +33,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case eventMsg:
+		log.Printf("tui: orch event type=%s ok=%t phase=%d",
+			msg.event.Type, msg.ok, m.phase)
 		return m.handleEvent(msg)
 	}
 

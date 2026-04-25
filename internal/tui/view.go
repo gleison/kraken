@@ -2,24 +2,39 @@ package tui
 
 import (
 	"fmt"
+	"log"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/gleison/kraken/internal/domain"
 )
 
+// viewSlowThreshold is the duration above which a single render is logged
+// as a warning. Bubble Tea calls View after every Update, so a slow View
+// freezes the entire UI (including Ctrl+C).
+const viewSlowThreshold = 200 * time.Millisecond
+
 // View renders the current state. The header and footer are always
 // visible; the body in between is fitted to the remaining vertical space
 // and can be scrolled with the keyboard when it overflows.
 func (m Model) View() string {
+	start := time.Now()
+	defer func() {
+		if d := time.Since(start); d > viewSlowThreshold {
+			log.Printf("tui: View slow (%s, phase=%d, session=%d, final_bytes=%d)",
+				d, m.phase, len(m.session), len(m.final))
+		}
+	}()
+
 	header := m.styles.Title.Render("🐙 kraken") + "  " +
 		m.styles.Subtitle.Render("orquestrador de tarefas LLM")
 
 	body := m.renderBody()
 	footer := m.footer()
 
-	return header + "\n\n" + m.viewport(body) + "\n" + m.scrollHint() + footer
+	return header + "\n\n" + m.viewport(body) + "\n" + m.scrollHint(body) + footer
 }
 
 // renderBody returns the full (unscrolled) body for the current phase.
@@ -73,12 +88,13 @@ func (m Model) bodyHeight() int {
 }
 
 // scrollHint shows arrows when there is content above or below the viewport.
-func (m Model) scrollHint() string {
+// Reuses the already-rendered body so View only renders once per frame.
+func (m Model) scrollHint(body string) string {
 	bodyHeight := m.bodyHeight()
 	if bodyHeight <= 0 {
 		return ""
 	}
-	total := m.bodyLineCount()
+	total := strings.Count(body, "\n") + 1
 	if total <= bodyHeight {
 		return ""
 	}
@@ -93,12 +109,6 @@ func (m Model) scrollHint() string {
 		return ""
 	}
 	return m.styles.Help.Render(strings.Join(indicators, "  ")) + "\n"
-}
-
-// bodyLineCount returns the number of lines in the current body.
-// Used by scroll clamping and the scroll hint.
-func (m Model) bodyLineCount() int {
-	return len(strings.Split(m.renderBody(), "\n"))
 }
 
 func (m Model) viewInput() string {
