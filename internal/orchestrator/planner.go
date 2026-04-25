@@ -104,61 +104,70 @@ func parsePlannerPayload(raw string) (*plannerPayload, error) {
 	return &p, nil
 }
 
-// repairJSONStrings escapes raw control characters (LF, CR, TAB) that appear
-// inside JSON string literals - both at the top level (where strict JSON
-// forbids them) and right after a backslash (which produces an invalid
-// escape sequence such as `\<LF>`). Outside strings the input is left
-// untouched.
+// repairJSONStrings makes a best-effort pass to fix string-literal mistakes
+// that small models commonly produce: raw control characters inside a
+// string, and backslashes followed by something that isn't a valid JSON
+// escape (e.g. "\'", "\<LF>"). Outside strings the input is untouched.
+//
+// Recognised escapes after '\\' (kept verbatim): " \ / b f n r t u.
+// Raw LF/CR/TAB inside a string become \n / \r / \t.
+// "\\<control>" becomes the canonical escape (\n etc).
+// "\\<other>" drops the backslash, keeping the next character.
 func repairJSONStrings(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	inStr := false
-	escaped := false
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		if escaped {
-			// We've already emitted the backslash. The model may have
-			// followed it with a real control byte instead of the proper
-			// letter ("\<LF>" rather than "\n"); rewrite to the canonical
-			// escape so the parser accepts it.
-			switch c {
-			case '\n':
-				b.WriteByte('n')
-			case '\r':
-				b.WriteByte('r')
-			case '\t':
-				b.WriteByte('t')
-			default:
-				b.WriteByte(c)
-			}
-			escaped = false
-			continue
-		}
-		if inStr {
-			switch c {
-			case '\\':
-				b.WriteByte(c)
-				escaped = true
-			case '"':
-				b.WriteByte(c)
-				inStr = false
-			case '\n':
-				b.WriteString(`\n`)
-			case '\r':
-				b.WriteString(`\r`)
-			case '\t':
-				b.WriteString(`\t`)
-			default:
-				b.WriteByte(c)
-			}
-		} else {
+		if !inStr {
+			b.WriteByte(c)
 			if c == '"' {
 				inStr = true
 			}
+			continue
+		}
+		switch c {
+		case '"':
+			b.WriteByte(c)
+			inStr = false
+		case '\\':
+			i = repairEscape(&b, s, i)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
 			b.WriteByte(c)
 		}
 	}
 	return b.String()
+}
+
+// repairEscape handles one '\\' sequence inside a string literal and
+// returns the index of the last consumed byte. It assumes s[i] == '\\'.
+func repairEscape(b *strings.Builder, s string, i int) int {
+	if i+1 >= len(s) {
+		b.WriteByte('\\')
+		return i
+	}
+	next := s[i+1]
+	switch next {
+	case '"', '\\', '/', 'b', 'f', 'n', 'r', 't', 'u':
+		b.WriteByte('\\')
+		b.WriteByte(next)
+	case '\n':
+		b.WriteString(`\n`)
+	case '\r':
+		b.WriteString(`\r`)
+	case '\t':
+		b.WriteString(`\t`)
+	default:
+		// Invalid escape — drop the backslash, keep the literal byte.
+		b.WriteByte(next)
+	}
+	return i + 1
 }
 
 // extractJSONObject returns the first balanced {...} block in s, or "".
