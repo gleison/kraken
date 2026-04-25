@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -205,16 +206,24 @@ func (o *OpenAI) doRequest(ctx context.Context, req Request, level formatLevel) 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Authorization", "Bearer "+o.apiKey)
 
+	log.Printf("openai: POST %s (level=%d, msgs=%d, max_tokens=%d, body_bytes=%d)",
+		url, level, len(payload.Messages), maxTokens, len(body))
+	start := time.Now()
+
 	resp, err := o.http.Do(httpReq)
 	if err != nil {
+		log.Printf("openai: POST %s failed after %s: %v", url, time.Since(start), err)
 		return nil, fmt.Errorf("openai: http: %w", err)
 	}
 	defer resp.Body.Close()
 
 	raw, err := io.ReadAll(resp.Body)
 	if err != nil {
+		log.Printf("openai: read body failed after %s: %v", time.Since(start), err)
 		return nil, fmt.Errorf("openai: read body: %w", err)
 	}
+	log.Printf("openai: POST %s → %d in %s (resp_bytes=%d)",
+		url, resp.StatusCode, time.Since(start), len(raw))
 
 	var parsed oaiResponse
 	if err := json.Unmarshal(raw, &parsed); err != nil {

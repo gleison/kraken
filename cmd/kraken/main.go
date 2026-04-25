@@ -11,10 +11,14 @@
 //	OPENAI_MODEL       Model name, default gpt-4o-mini
 //	OPENAI_TIMEOUT     Per-request timeout in seconds, default 600 (10 min)
 //	OPENAI_MAX_TOKENS  Max tokens per response, default 4096
+//	KRAKEN_LOG         Path to a debug log file. When set, every HTTP
+//	                   request and planner stage is recorded with a
+//	                   timestamp; useful when the TUI seems stuck.
 package main
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strconv"
@@ -28,12 +32,39 @@ import (
 )
 
 func main() {
+	closeLog := setupLog()
+	defer closeLog()
+
 	client := buildClient()
 	orch := orchestrator.New(client)
 
 	program := tea.NewProgram(tui.NewModel(orch), tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
 		log.Fatalf("kraken: %v", err)
+	}
+}
+
+// setupLog wires the standard logger to the file pointed to by KRAKEN_LOG,
+// or silences it otherwise (so log output does not corrupt the TUI). The
+// returned closer flushes and closes the file.
+func setupLog() func() {
+	path := os.Getenv("KRAKEN_LOG")
+	if path == "" {
+		log.SetOutput(io.Discard)
+		return func() {}
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		// Fall back silently; logging is best-effort.
+		log.SetOutput(io.Discard)
+		return func() {}
+	}
+	log.SetOutput(f)
+	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
+	log.Printf("kraken: log opened (pid=%d)", os.Getpid())
+	return func() {
+		log.Printf("kraken: log closed")
+		_ = f.Close()
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 
@@ -95,12 +96,17 @@ func parsePlannerPayload(raw string) (*plannerPayload, error) {
 	}
 	var p plannerPayload
 	if err := json.Unmarshal([]byte(s), &p); err == nil {
+		log.Printf("planner: parsed %d task(s) on first pass", len(p.Tasks))
 		return &p, nil
+	} else {
+		log.Printf("planner: first parse failed (%v); trying repair", err)
 	}
 	repaired := repairJSONStrings(s)
 	if err := json.Unmarshal([]byte(repaired), &p); err != nil {
+		log.Printf("planner: repaired parse also failed: %v", err)
 		return nil, err
 	}
+	log.Printf("planner: parsed %d task(s) after repair", len(p.Tasks))
 	return &p, nil
 }
 

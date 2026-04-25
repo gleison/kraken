@@ -3,7 +3,9 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
+	"time"
 
 	"github.com/gleison/kraken/internal/domain"
 	"github.com/gleison/kraken/internal/llm"
@@ -31,6 +33,9 @@ func (e *Executor) Execute(ctx context.Context, goal string, task *domain.Task, 
 	task.MarkRunning()
 
 	prompt := buildExecutorPrompt(goal, task, previous)
+	log.Printf("executor: task %s start (prompt_bytes=%d)", task.ID, len(prompt))
+	start := time.Now()
+
 	resp, err := e.client.Complete(ctx, llm.Request{
 		System:   executorSystem,
 		Messages: []llm.Message{{Role: llm.RoleUser, Content: prompt}},
@@ -39,10 +44,13 @@ func (e *Executor) Execute(ctx context.Context, goal string, task *domain.Task, 
 		// generation isn't capped at the planner's smaller budget.
 	})
 	if err != nil {
+		log.Printf("executor: task %s failed in %s: %v", task.ID, time.Since(start), err)
 		task.MarkFailed(err)
 		return fmt.Errorf("executor: %w", err)
 	}
 
+	log.Printf("executor: task %s done in %s (result_bytes=%d)",
+		task.ID, time.Since(start), len(resp.Content))
 	task.MarkDone(strings.TrimSpace(resp.Content))
 	return nil
 }
