@@ -4,13 +4,16 @@
 // Chat Completions protocol (OpenAI, Azure OpenAI, Groq, Together,
 // OpenRouter, Ollama, vLLM, LM Studio, ...).
 //
-// Configuration via environment variables:
+// Configuration via environment variables. At least one of
+// OPENAI_API_KEY or OPENAI_BASE_URL must be set, otherwise kraken
+// exits with an error - there is no mock fallback.
 //
-//	OPENAI_API_KEY     API key (required for real runs; if empty, uses mock)
-//	OPENAI_BASE_URL    Base URL, default https://api.openai.com/v1
-//	OPENAI_MODEL       Model name, default gpt-4o-mini
-//	OPENAI_TIMEOUT     Per-request timeout in seconds, default 600 (10 min)
-//	OPENAI_MAX_TOKENS  Max tokens per response, default 4096
+//	OPENAI_API_KEY     API key (omit for keyless local providers
+//	                   like LM Studio / Ollama).
+//	OPENAI_BASE_URL    Base URL, default https://api.openai.com/v1.
+//	OPENAI_MODEL       Model name, default gpt-4o-mini.
+//	OPENAI_TIMEOUT     Per-request timeout in seconds, default 600 (10 min).
+//	OPENAI_MAX_TOKENS  Max tokens per response, default 4096.
 //	KRAKEN_LOG         Path to a debug log file. When set, every HTTP
 //	                   request and planner stage is recorded with a
 //	                   timestamp; useful when the TUI seems stuck.
@@ -35,7 +38,11 @@ func main() {
 	closeLog := setupLog()
 	defer closeLog()
 
-	client := buildClient()
+	client, err := buildClient()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "kraken:", err)
+		os.Exit(2)
+	}
 	orch := orchestrator.New(client)
 
 	program := tea.NewProgram(tui.NewModel(orch), tea.WithAltScreen())
@@ -68,18 +75,14 @@ func setupLog() func() {
 	}
 }
 
-func buildClient() llm.Client {
+func buildClient() (llm.Client, error) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	baseURL := os.Getenv("OPENAI_BASE_URL")
 	model := os.Getenv("OPENAI_MODEL")
 
-	// Mock only when the user has configured nothing. As soon as a key
-	// or a base URL is set, use the real client - local providers like
-	// LM Studio and Ollama don't require an API key.
 	if apiKey == "" && baseURL == "" {
-		log.Print("kraken: no OPENAI_API_KEY or OPENAI_BASE_URL, using mock LLM")
-		fmt.Fprintln(os.Stderr, "kraken: no OPENAI_API_KEY or OPENAI_BASE_URL set, using mock LLM")
-		return llm.NewMock()
+		return nil, fmt.Errorf(
+			"no LLM configured: set OPENAI_API_KEY (cloud) or OPENAI_BASE_URL (e.g. http://localhost:1234/v1 for LM Studio)")
 	}
 	log.Printf("kraken: using OpenAI client (base=%q model=%q has_key=%t)",
 		baseURL, model, apiKey != "")
@@ -89,7 +92,7 @@ func buildClient() llm.Client {
 		Model:     model,
 		Timeout:   parseTimeoutSeconds(os.Getenv("OPENAI_TIMEOUT")),
 		MaxTokens: parsePositiveInt("OPENAI_MAX_TOKENS", os.Getenv("OPENAI_MAX_TOKENS")),
-	})
+	}), nil
 }
 
 // parseTimeoutSeconds reads a non-negative integer (seconds) and returns it
