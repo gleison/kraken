@@ -158,6 +158,7 @@ func (m Model) handleEvent(msg eventMsg) (tea.Model, tea.Cmd) {
 	case orchestrator.EventRunCompleted:
 		m.final = ev.Final
 		m.phase = phaseDone
+		m.scrollOffset = 1 << 20 // viewport clamps to bottom
 		if ev.Plan != nil {
 			m.session = append(m.session, domain.Turn{
 				UserInput: m.pendingInput,
@@ -169,6 +170,7 @@ func (m Model) handleEvent(msg eventMsg) (tea.Model, tea.Cmd) {
 	case orchestrator.EventRunFailed:
 		m.err = ev.Err
 		m.phase = phaseError
+		m.scrollOffset = 1 << 20
 	}
 
 	return m, waitForEvent(m.events)

@@ -138,6 +138,7 @@ func (m Model) inputBox() lipgloss.Style {
 
 func (m Model) viewRunning() string {
 	var b strings.Builder
+	b.WriteString(m.renderHistory())
 	fmt.Fprintf(&b, "%s %s\n\n", spinnerView(m.spinnerFrame), m.phaseHeadline())
 
 	if m.plan == nil {
@@ -150,23 +151,19 @@ func (m Model) viewRunning() string {
 
 func (m Model) viewDone() string {
 	var b strings.Builder
-	b.WriteString(m.styles.Done.Render("✓ execução concluída"))
+	header := "✓ execução concluída"
+	if n := len(m.session); n > 1 {
+		header = fmt.Sprintf("✓ sessão · %d turnos", n)
+	}
+	b.WriteString(m.styles.Done.Render(header))
 	b.WriteString("\n\n")
-	if m.plan != nil {
-		b.WriteString(m.renderPlan())
-		b.WriteString("\n")
-	}
-	if m.final != "" {
-		b.WriteString(m.styles.Label.Render("Resultado final"))
-		b.WriteString("\n")
-		rendered := strings.TrimRight(renderMarkdown(m.final, m.contentWidth()-2), "\n")
-		b.WriteString(m.inputBox().Render(rendered))
-	}
+	b.WriteString(m.renderHistory())
 	return b.String()
 }
 
 func (m Model) viewError() string {
 	var b strings.Builder
+	b.WriteString(m.renderHistory())
 	b.WriteString(m.styles.Failed.Render("✗ falha na execução"))
 	b.WriteString("\n\n")
 	if m.plan != nil {
@@ -177,6 +174,71 @@ func (m Model) viewError() string {
 		b.WriteString(m.styles.ErrorText.Render(m.err.Error()))
 	}
 	return b.String()
+}
+
+// renderHistory stacks all completed turns from the session, oldest first.
+// Each turn is a chat-style block with the user's input followed by the
+// orchestrator's compact plan and rendered final result.
+func (m Model) renderHistory() string {
+	if len(m.session) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, t := range m.session {
+		b.WriteString(m.renderTurn(i, t))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func (m Model) renderTurn(idx int, t domain.Turn) string {
+	var b strings.Builder
+
+	if len(m.session) > 1 {
+		b.WriteString(m.styles.Subtitle.Render(fmt.Sprintf("──── turno %d ────", idx+1)))
+		b.WriteString("\n")
+	}
+
+	b.WriteString(m.styles.Label.Render("👤 você"))
+	b.WriteString("\n")
+	b.WriteString(wrap(summarizeInput(t.UserInput, 20), m.contentWidth()))
+	b.WriteString("\n\n")
+
+	b.WriteString(m.styles.Label.Render("🤖 kraken"))
+	b.WriteString("\n")
+	if t.Plan != nil {
+		b.WriteString(m.renderCompactPlan(t.Plan))
+	}
+	if t.Result != "" {
+		b.WriteString(strings.TrimRight(renderMarkdown(t.Result, m.contentWidth()), "\n"))
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+// renderCompactPlan lists the plan as a single icon+title line per task,
+// without per-task results. Past turns use this; the live in-flight plan
+// uses the verbose renderPlan.
+func (m Model) renderCompactPlan(p *domain.Plan) string {
+	var b strings.Builder
+	for _, task := range p.Tasks {
+		icon, style := m.taskDecoration(task)
+		fmt.Fprintf(&b, "%s %s. %s\n", style.Render(icon), task.ID, task.Title)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// summarizeInput keeps the user input readable in the history: caps the
+// number of lines so a 100-line script paste does not dominate the view.
+func summarizeInput(s string, maxLines int) string {
+	lines := strings.Split(s, "\n")
+	if len(lines) <= maxLines {
+		return s
+	}
+	hidden := len(lines) - maxLines
+	return strings.Join(lines[:maxLines], "\n") +
+		fmt.Sprintf("\n... (%d linhas adicionais)", hidden)
 }
 
 func (m Model) phaseHeadline() string {
