@@ -17,7 +17,11 @@ const (
 	defaultBaseURL   = "https://api.openai.com/v1"
 	defaultModel     = "gpt-4o-mini"
 	defaultMaxTokens = 1024
-	defaultTimeout   = 60 * time.Second
+	// defaultTimeout is generous on purpose: local models (e.g. Gemma 2B
+	// behind llama.cpp/Ollama) often need several minutes to emit long
+	// code outputs. Tighten via Config.Timeout / OPENAI_TIMEOUT when
+	// using a fast hosted endpoint.
+	defaultTimeout = 10 * time.Minute
 )
 
 // formatLevel ranks response_format variants from strictest (0) to none (2).

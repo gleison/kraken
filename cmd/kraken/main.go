@@ -9,12 +9,15 @@
 //	OPENAI_API_KEY   API key (required for real runs; if empty, uses mock)
 //	OPENAI_BASE_URL  Base URL, default https://api.openai.com/v1
 //	OPENAI_MODEL     Model name, default gpt-4o-mini
+//	OPENAI_TIMEOUT   Per-request timeout in seconds, default 600 (10 min)
 package main
 
 import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -43,5 +46,20 @@ func buildClient() llm.Client {
 		APIKey:  apiKey,
 		BaseURL: os.Getenv("OPENAI_BASE_URL"),
 		Model:   os.Getenv("OPENAI_MODEL"),
+		Timeout: parseTimeoutSeconds(os.Getenv("OPENAI_TIMEOUT")),
 	})
+}
+
+// parseTimeoutSeconds reads a non-negative integer (seconds) and returns it
+// as a Duration. Empty or invalid values fall through to the library default.
+func parseTimeoutSeconds(s string) time.Duration {
+	if s == "" {
+		return 0
+	}
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		fmt.Fprintf(os.Stderr, "kraken: ignoring invalid OPENAI_TIMEOUT=%q\n", s)
+		return 0
+	}
+	return time.Duration(n) * time.Second
 }
