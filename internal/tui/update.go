@@ -5,6 +5,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/gleison/kraken/internal/domain"
 	"github.com/gleison/kraken/internal/orchestrator"
 )
 
@@ -69,7 +70,8 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		switch {
-		case msg.Type == tea.KeyEnter, msg.String() == "r":
+		case msg.String() == "c":
+			// Continue the conversation: keep session, just open input.
 			m.phase = phaseInput
 			m.input.Reset()
 			m.input.Focus()
@@ -77,6 +79,17 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.final = ""
 			m.err = nil
 			m.scrollOffset = 0
+			return m, nil
+		case msg.Type == tea.KeyEnter, msg.String() == "r":
+			// Reset: drop the session and start fresh.
+			m.phase = phaseInput
+			m.input.Reset()
+			m.input.Focus()
+			m.plan = nil
+			m.final = ""
+			m.err = nil
+			m.scrollOffset = 0
+			m.session = nil
 			return m, nil
 		case msg.String() == "q":
 			return m, tea.Quit
@@ -145,6 +158,14 @@ func (m Model) handleEvent(msg eventMsg) (tea.Model, tea.Cmd) {
 	case orchestrator.EventRunCompleted:
 		m.final = ev.Final
 		m.phase = phaseDone
+		if ev.Plan != nil {
+			m.session = append(m.session, domain.Turn{
+				UserInput: m.pendingInput,
+				Goal:      ev.Plan.Goal,
+				Plan:      ev.Plan,
+				Result:    ev.Final,
+			})
+		}
 	case orchestrator.EventRunFailed:
 		m.err = ev.Err
 		m.phase = phaseError

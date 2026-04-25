@@ -103,10 +103,26 @@ func (m Model) bodyLineCount() int {
 
 func (m Model) viewInput() string {
 	var b strings.Builder
+	if len(m.session) > 0 {
+		last := m.session[len(m.session)-1]
+		banner := "↺ refinando: " + truncateInline(last.UserInput, 80)
+		b.WriteString(m.styles.Subtitle.Render(banner))
+		b.WriteString("\n")
+	}
 	b.WriteString(m.styles.Label.Render("Objetivo"))
 	b.WriteString("\n")
 	b.WriteString(m.inputBox().Render(m.input.View()))
 	return b.String()
+}
+
+// truncateInline shortens s to fit on a single line, replacing newlines
+// with spaces. Used for the refinement banner.
+func truncateInline(s string, max int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
 }
 
 // inputBox returns a Box style sized to the current terminal width so the
@@ -220,7 +236,7 @@ func (m Model) footer() string {
 	case phaseRunning:
 		return m.styles.Help.Render("↑↓ pgup/pgdn: rolar  •  ctrl+c: sair")
 	case phaseDone, phaseError:
-		return m.styles.Help.Render("↑↓ pgup/pgdn: rolar  •  enter/r: nova tarefa  •  q: sair")
+		return m.styles.Help.Render("↑↓ pgup/pgdn: rolar  •  c: continuar  •  r: nova tarefa  •  q: sair")
 	}
 	return ""
 }
