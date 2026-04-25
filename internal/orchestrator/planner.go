@@ -105,8 +105,10 @@ func parsePlannerPayload(raw string) (*plannerPayload, error) {
 }
 
 // repairJSONStrings escapes raw control characters (LF, CR, TAB) that appear
-// inside JSON string literals. Strict JSON forbids them, but loose models
-// often emit them. Outside strings the input is left untouched.
+// inside JSON string literals - both at the top level (where strict JSON
+// forbids them) and right after a backslash (which produces an invalid
+// escape sequence such as `\<LF>`). Outside strings the input is left
+// untouched.
 func repairJSONStrings(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -115,7 +117,20 @@ func repairJSONStrings(s string) string {
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		if escaped {
-			b.WriteByte(c)
+			// We've already emitted the backslash. The model may have
+			// followed it with a real control byte instead of the proper
+			// letter ("\<LF>" rather than "\n"); rewrite to the canonical
+			// escape so the parser accepts it.
+			switch c {
+			case '\n':
+				b.WriteByte('n')
+			case '\r':
+				b.WriteByte('r')
+			case '\t':
+				b.WriteByte('t')
+			default:
+				b.WriteByte(c)
+			}
 			escaped = false
 			continue
 		}
