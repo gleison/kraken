@@ -53,21 +53,20 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch m.phase {
 	case phaseInput:
-		// Enter always inserts a newline so that pasted content never
-		// loses its line breaks (some terminals deliver paste line breaks
-		// as bare CR events indistinguishable from a typed Enter).
-		// Submit is an explicit, non-ambiguous chord: Ctrl+D.
+		// Ctrl+Enter submits. Most terminals send it as Esc+Enter, which
+		// Bubble Tea reports as KeyEnter with Alt=true. Plain Enter (no
+		// modifier) inserts a newline so pasted content keeps its breaks.
 		if msg.Type == tea.KeyEnter {
+			if msg.Alt || msg.String() == "ctrl+enter" {
+				goal := strings.TrimSpace(m.input.Value())
+				if goal == "" {
+					return m, nil
+				}
+				cmd := m.startRun(goal)
+				return m, cmd
+			}
 			m.input.Newline()
 			return m, nil
-		}
-		if msg.Type == tea.KeyCtrlD {
-			goal := strings.TrimSpace(m.input.Value())
-			if goal == "" {
-				return m, nil
-			}
-			cmd := m.startRun(goal)
-			return m, cmd
 		}
 		m.input.Update(msg)
 		return m, nil
@@ -111,17 +110,18 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // handleScroll updates scrollOffset for navigation keys and returns whether
 // the key was consumed. Clamping to the valid range happens in viewport().
+// Ctrl+D / Ctrl+U page down/up; arrow keys move one line; g/G jump to
+// top/bottom (with home/end as fallbacks).
 func (m *Model) handleScroll(msg tea.KeyMsg) bool {
-	switch msg.String() {
-	case "up", "k":
-		if m.scrollOffset > 0 {
-			m.scrollOffset--
+	if msg.Type == tea.KeyCtrlD {
+		step := m.bodyHeight("")
+		if step < 1 {
+			step = 1
 		}
+		m.scrollOffset += step
 		return true
-	case "down", "j":
-		m.scrollOffset++
-		return true
-	case "pgup":
+	}
+	if msg.Type == tea.KeyCtrlU {
 		step := m.bodyHeight("")
 		if step < 1 {
 			step = 1
@@ -131,12 +131,15 @@ func (m *Model) handleScroll(msg tea.KeyMsg) bool {
 			m.scrollOffset = 0
 		}
 		return true
-	case "pgdown":
-		step := m.bodyHeight("")
-		if step < 1 {
-			step = 1
+	}
+	switch msg.String() {
+	case "up", "k":
+		if m.scrollOffset > 0 {
+			m.scrollOffset--
 		}
-		m.scrollOffset += step
+		return true
+	case "down", "j":
+		m.scrollOffset++
 		return true
 	case "home", "g":
 		m.scrollOffset = 0
