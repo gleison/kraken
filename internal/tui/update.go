@@ -122,7 +122,7 @@ func (m *Model) handleScroll(msg tea.KeyMsg) bool {
 		m.scrollOffset++
 		return true
 	case "pgup":
-		step := m.bodyHeight()
+		step := m.bodyHeight("")
 		if step < 1 {
 			step = 1
 		}
@@ -132,7 +132,7 @@ func (m *Model) handleScroll(msg tea.KeyMsg) bool {
 		}
 		return true
 	case "pgdown":
-		step := m.bodyHeight()
+		step := m.bodyHeight("")
 		if step < 1 {
 			step = 1
 		}
@@ -162,10 +162,14 @@ func (m Model) handleEvent(msg eventMsg) (tea.Model, tea.Cmd) {
 		// spinner already ticking
 	case orchestrator.EventPlanReady:
 		m.plan = ev.Plan
+		m.scrollOffset = 1 << 20
 	case orchestrator.EventTaskStarted, orchestrator.EventTaskCompleted:
 		// Task pointers are shared with the plan; state already updated.
+		// Stick to the bottom so the user sees the latest output.
+		m.scrollOffset = 1 << 20
 	case orchestrator.EventTaskFailed:
 		m.err = ev.Err
+		m.scrollOffset = 1 << 20
 	case orchestrator.EventRunCompleted:
 		m.final = ev.Final
 		m.phase = phaseDone

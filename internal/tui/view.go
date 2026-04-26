@@ -16,9 +16,9 @@ import (
 // freezes the entire UI (including Ctrl+C).
 const viewSlowThreshold = 200 * time.Millisecond
 
-// View renders the current state. The header and footer are always
-// visible; the body in between is fitted to the remaining vertical space
-// and can be scrolled with the keyboard when it overflows.
+// View renders the current state. The header and (optional) pinned plan
+// stay at the top; the body in between is fitted to the remaining
+// vertical space and can be scrolled with the keyboard.
 func (m Model) View() string {
 	start := time.Now()
 	defer func() {
@@ -31,10 +31,16 @@ func (m Model) View() string {
 	header := m.styles.Title.Render("🐙 kraken") + "  " +
 		m.styles.Subtitle.Render("orquestrador de tarefas LLM")
 
+	pinned := m.renderPinnedPlan()
 	body := m.renderBody()
 	footer := m.footer()
 
-	return header + "\n\n" + m.viewport(body) + "\n" + m.scrollHint(body) + footer
+	out := header + "\n\n"
+	if pinned != "" {
+		out += pinned + "\n"
+	}
+	out += m.viewport(body, pinned) + "\n" + m.scrollHint(body, pinned) + footer
+	return out
 }
 
 // renderBody returns the full (unscrolled) body for the current phase.
@@ -54,8 +60,9 @@ func (m Model) renderBody() string {
 
 // viewport slices body lines according to scrollOffset and the available
 // vertical space, so long plans/results don't push the footer offscreen.
-func (m Model) viewport(body string) string {
-	bodyHeight := m.bodyHeight()
+// The pinned region sits above the viewport and steals from its height.
+func (m Model) viewport(body, pinned string) string {
+	bodyHeight := m.bodyHeight(pinned)
 	if bodyHeight <= 0 {
 		return body
 	}
@@ -74,13 +81,17 @@ func (m Model) viewport(body string) string {
 	return strings.Join(lines[off:off+bodyHeight], "\n")
 }
 
-// bodyHeight is the number of body lines the terminal can show without
-// pushing the footer offscreen. 5 lines are reserved for header/footer/gaps.
-func (m Model) bodyHeight() int {
+// bodyHeight is the number of body lines the terminal can show given the
+// space already taken by header, footer, and the pinned plan.
+func (m Model) bodyHeight(pinned string) int {
 	if m.height <= 0 {
 		return 0
 	}
-	const reserved = 5
+	pinnedLines := 0
+	if pinned != "" {
+		pinnedLines = strings.Count(pinned, "\n") + 2 // pinned + separator line
+	}
+	reserved := 5 + pinnedLines
 	if m.height <= reserved {
 		return 1
 	}
@@ -89,8 +100,8 @@ func (m Model) bodyHeight() int {
 
 // scrollHint shows arrows when there is content above or below the viewport.
 // Reuses the already-rendered body so View only renders once per frame.
-func (m Model) scrollHint(body string) string {
-	bodyHeight := m.bodyHeight()
+func (m Model) scrollHint(body, pinned string) string {
+	bodyHeight := m.bodyHeight(pinned)
 	if bodyHeight <= 0 {
 		return ""
 	}
@@ -149,13 +160,37 @@ func (m Model) inputBox() lipgloss.Style {
 func (m Model) viewRunning() string {
 	var b strings.Builder
 	b.WriteString(m.renderHistory())
-	fmt.Fprintf(&b, "%s %s\n\n", spinnerView(m.spinnerFrame), m.phaseHeadline())
 
 	if m.plan == nil {
-		b.WriteString(m.styles.Subtitle.Render("Planejando tarefas..."))
+		fmt.Fprintf(&b, "%s %s\n", spinnerView(m.spinnerFrame), m.phaseHeadline())
 		return b.String()
 	}
-	b.WriteString(m.renderPlan())
+
+	if m.pendingInput != "" {
+		b.WriteString(m.styles.Label.Render("👤 você"))
+		b.WriteString("\n")
+		b.WriteString(wrap(summarizeInput(m.pendingInput, 20), m.contentWidth()))
+		b.WriteString("\n\n")
+	}
+
+	b.WriteString(m.styles.Label.Render("🤖 kraken"))
+	b.WriteString("\n")
+	for _, t := range m.plan.Tasks {
+		switch t.Status {
+		case domain.StatusDone:
+			fmt.Fprintf(&b, "%s %s. %s\n", m.styles.Done.Render("✓"), t.ID, t.Title)
+			if t.Result != "" {
+				b.WriteString(indent(wrap(t.Result, m.contentWidth()-4), "    "))
+				b.WriteString("\n\n")
+			}
+		case domain.StatusRunning:
+			fmt.Fprintf(&b, "%s %s. %s\n", spinnerView(m.spinnerFrame), t.ID, t.Title)
+			if t.Result != "" {
+				b.WriteString(indent(wrap(t.Result, m.contentWidth()-4), "    "))
+				b.WriteString("\n")
+			}
+		}
+	}
 	return b.String()
 }
 
@@ -176,14 +211,31 @@ func (m Model) viewError() string {
 	b.WriteString(m.renderHistory())
 	b.WriteString(m.styles.Failed.Render("✗ falha na execução"))
 	b.WriteString("\n\n")
-	if m.plan != nil {
-		b.WriteString(m.renderPlan())
-		b.WriteString("\n")
-	}
 	if m.err != nil {
 		b.WriteString(m.styles.ErrorText.Render(wrap(m.err.Error(), m.contentWidth())))
 	}
 	return b.String()
+}
+
+// renderPinnedPlan returns the plan + per-task statuses for the run that
+// is currently in flight (or just finished/failed). It stays at the top of
+// the viewport so the user always sees what is happening, while the body
+// below scrolls. Empty during phaseInput, or when no plan exists yet.
+func (m Model) renderPinnedPlan() string {
+	if m.plan == nil {
+		return ""
+	}
+	if m.phase == phaseInput {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(m.styles.Label.Render("Plano"))
+	b.WriteString("\n")
+	for _, t := range m.plan.Tasks {
+		icon, style := m.taskDecoration(t)
+		fmt.Fprintf(&b, "%s %s. %s\n", style.Render(icon), t.ID, t.Title)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }
 
 // renderHistory stacks all completed turns from the session, oldest first.
@@ -269,36 +321,6 @@ func (m Model) phaseHeadline() string {
 		return m.styles.Running.Render("planejando...")
 	}
 	return m.styles.Running.Render("executando plano...")
-}
-
-func (m Model) renderPlan() string {
-	var b strings.Builder
-	b.WriteString(m.styles.Label.Render("Plano"))
-	b.WriteString("\n")
-	for _, t := range m.plan.Tasks {
-		b.WriteString(m.renderTask(t))
-	}
-	return b.String()
-}
-
-func (m Model) renderTask(t *domain.Task) string {
-	icon, style := m.taskDecoration(t)
-	header := fmt.Sprintf("%s %s. %s", icon, t.ID, t.Title)
-
-	var b strings.Builder
-	b.WriteString(style.Render(header))
-	b.WriteString("\n")
-
-	if t.Status == domain.StatusDone && t.Result != "" {
-		indented := indent(wrap(t.Result, m.contentWidth()-4), "    ")
-		b.WriteString(m.styles.Result.Render(indented))
-		b.WriteString("\n")
-	}
-	if t.Status == domain.StatusFailed && t.Err != "" {
-		b.WriteString(m.styles.ErrorText.Render("    " + t.Err))
-		b.WriteString("\n")
-	}
-	return b.String()
 }
 
 func (m Model) taskDecoration(t *domain.Task) (string, lipgloss.Style) {
