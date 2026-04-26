@@ -219,11 +219,24 @@ func (m Model) renderTurn(idx int, t domain.Turn) string {
 	if t.Plan != nil {
 		b.WriteString(m.renderCompactPlan(t.Plan))
 	}
-	if t.Result != "" {
-		b.WriteString(strings.TrimRight(renderMarkdown(t.Result, m.contentWidth()), "\n"))
+	if rendered := m.turnRenderFor(idx, t); rendered != "" {
+		b.WriteString(strings.TrimRight(rendered, "\n"))
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+// turnRenderFor returns the cached markdown render for the given turn,
+// falling back to a fresh render if the cache is missing it (e.g. after
+// a width change). The cache lookup keeps the hot path cheap.
+func (m Model) turnRenderFor(idx int, t domain.Turn) string {
+	if idx < len(m.turnRender) && m.turnRender[idx] != "" {
+		return m.turnRender[idx]
+	}
+	if t.Result == "" {
+		return ""
+	}
+	return renderMarkdown(t.Result, m.contentWidth())
 }
 
 // renderCompactPlan lists the plan as a single icon+title line per task,

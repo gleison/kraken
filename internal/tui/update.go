@@ -15,6 +15,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
+		if m.width != msg.Width {
+			// Width changed → cached markdown renders are wrong width;
+			// drop them and let turnRenderFor rebuild lazily.
+			m.turnRender = nil
+		}
 		m.width = msg.Width
 		m.height = msg.Height
 		m.input.SetWidth(msg.Width - 4)
@@ -95,6 +100,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.err = nil
 			m.scrollOffset = 0
 			m.session = nil
+			m.turnRender = nil
 			return m, nil
 		case msg.String() == "q":
 			return m, tea.Quit
@@ -171,6 +177,7 @@ func (m Model) handleEvent(msg eventMsg) (tea.Model, tea.Cmd) {
 				Plan:      ev.Plan,
 				Result:    ev.Final,
 			})
+			m.turnRender = append(m.turnRender, renderMarkdown(ev.Final, m.contentWidth()))
 		}
 	case orchestrator.EventRunFailed:
 		m.err = ev.Err

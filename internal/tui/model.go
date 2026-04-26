@@ -46,6 +46,11 @@ type Model struct {
 	// next submission is treated as a refinement of the last turn.
 	session []domain.Turn
 
+	// turnRender mirrors session, holding the markdown-rendered result
+	// for each turn. Filled when a turn is appended so View doesn't
+	// re-run glamour on every keystroke.
+	turnRender []string
+
 	// pendingInput is the raw user text for the run currently in
 	// flight, captured so it can be saved on the completed Turn.
 	pendingInput string
