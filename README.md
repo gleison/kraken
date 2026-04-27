@@ -72,6 +72,26 @@ Variáveis:
 | `OPENAI_TIMEOUT`     | `600`                         | Timeout por requisição (segundos).        |
 | `OPENAI_MAX_TOKENS`  | `4096`                        | Tokens máximos por resposta.              |
 | `KRAKEN_LOG`         | —                             | Caminho de arquivo p/ log de diagnóstico. |
+| `KRAKEN_WORKSPACE`   | cwd                           | Pasta-raiz que as ferramentas podem ler/escrever. |
+| `KRAKEN_ALLOW_WRITE` | `0`                           | `1` habilita `write_file` (ou flag `--write`).    |
+
+### Ferramentas de arquivos
+
+A LLM pode chamar três ferramentas confinadas ao workspace (sem escapar com
+`..` ou symlinks que apontem pra fora):
+
+- `read_file` (sempre on) — lê um arquivo UTF-8.
+- `list_dir` (sempre on) — lista entradas de um diretório.
+- `write_file` (off por padrão) — cria/sobrescreve um arquivo. Habilite com
+  `--write` ou `KRAKEN_ALLOW_WRITE=1`. Use com cuidado — sobrescreve.
+
+```bash
+# leitura/listagem apenas, sem permitir escrita:
+KRAKEN_WORKSPACE=$PWD go run ./cmd/kraken
+
+# permitindo escrita também:
+KRAKEN_WORKSPACE=$PWD go run ./cmd/kraken --write
+```
 
 ### Atalhos da TUI
 

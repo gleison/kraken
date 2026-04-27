@@ -25,10 +25,17 @@ func New(client llm.Client) *Orchestrator {
 	}
 }
 
+// Planner returns the underlying planner, exposed so callers can adjust
+// its prompt based on tooling availability.
+func (o *Orchestrator) Planner() *Planner { return o.planner }
+
+// Executor returns the underlying executor, exposed for tool wiring.
+func (o *Orchestrator) Executor() *Executor { return o.executor }
+
 // Run executes the full flow and returns a read-only event channel.
 // The channel is closed when the run ends (success or failure).
 func (o *Orchestrator) Run(ctx context.Context, goal string) <-chan Event {
-	out := make(chan Event, 8)
+	out := make(chan Event, 16)
 
 	go func() {
 		defer close(out)
@@ -39,6 +46,16 @@ func (o *Orchestrator) Run(ctx context.Context, goal string) <-chan Event {
 			case <-ctx.Done():
 			}
 		}
+
+		// Forward Executor tool activity through the same event stream.
+		o.executor.OnToolEvent(func(te ToolEvent) {
+			send(Event{Type: EventToolCall, Tool: &ToolActivity{
+				TaskID:    te.TaskID,
+				Iteration: te.Iteration,
+				Call:      te.Call,
+				Result:    te.Result,
+			}})
+		})
 
 		log.Printf("orchestrator: run start (goal_bytes=%d)", len(goal))
 		send(Event{Type: EventPlanning})

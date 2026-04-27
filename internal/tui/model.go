@@ -54,6 +54,11 @@ type Model struct {
 	// pendingInput is the raw user text for the run currently in
 	// flight, captured so it can be saved on the completed Turn.
 	pendingInput string
+
+	// toolActivity is the rolling list of tool calls observed during
+	// the in-flight run, displayed under the corresponding task in
+	// the body so the user can see what the LLM is touching.
+	toolActivity []orchestrator.ToolActivity
 }
 
 // eventMsg wraps an orchestrator.Event into a Bubble Tea message.
@@ -89,6 +94,7 @@ func (m *Model) startRun(userInput string) tea.Cmd {
 	m.phase = phaseRunning
 	m.spinnerFrame = 0
 	m.scrollOffset = 0
+	m.toolActivity = nil
 	m.events = m.orch.Run(context.Background(), m.goal)
 	return tea.Batch(tickSpinner(), waitForEvent(m.events))
 }

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/gleison/kraken/internal/domain"
+	"github.com/gleison/kraken/internal/tools"
 )
 
 // viewSlowThreshold is the duration above which a single render is logged
@@ -179,12 +181,14 @@ func (m Model) viewRunning() string {
 		switch t.Status {
 		case domain.StatusDone:
 			fmt.Fprintf(&b, "%s %s. %s\n", m.styles.Done.Render("✓"), t.ID, t.Title)
+			b.WriteString(m.renderToolActivity(t.ID))
 			if t.Result != "" {
 				b.WriteString(indent(wrap(t.Result, m.contentWidth()-4), "    "))
 				b.WriteString("\n\n")
 			}
 		case domain.StatusRunning:
 			fmt.Fprintf(&b, "%s %s. %s\n", spinnerView(m.spinnerFrame), t.ID, t.Title)
+			b.WriteString(m.renderToolActivity(t.ID))
 			if t.Result != "" {
 				b.WriteString(indent(wrap(t.Result, m.contentWidth()-4), "    "))
 				b.WriteString("\n")
@@ -192,6 +196,44 @@ func (m Model) viewRunning() string {
 		}
 	}
 	return b.String()
+}
+
+// renderToolActivity returns a compact view of all tool rounds the
+// executor performed for the given task during this run. Empty when the
+// task did not call any tools.
+func (m Model) renderToolActivity(taskID string) string {
+	var b strings.Builder
+	for _, ta := range m.toolActivity {
+		if ta.TaskID != taskID {
+			continue
+		}
+		icon := "↳"
+		style := m.styles.Subtitle
+		if ta.Result.Err != nil {
+			icon = "✗"
+			style = m.styles.ErrorText
+		}
+		summary := summarizeToolCall(ta.Call)
+		fmt.Fprintf(&b, "    %s %s\n", style.Render(icon), summary)
+		if ta.Result.Err != nil {
+			fmt.Fprintf(&b, "      %s\n", m.styles.ErrorText.Render(ta.Result.Err.Error()))
+		}
+	}
+	return b.String()
+}
+
+// summarizeToolCall is a one-line summary like
+// `read_file path=internal/tui/view.go` so the body stays compact.
+func summarizeToolCall(c tools.Call) string {
+	args := c.Args
+	if args == nil && c.Raw != "" {
+		args = map[string]any{}
+		_ = json.Unmarshal([]byte(c.Raw), &args)
+	}
+	if path, ok := args["path"].(string); ok && path != "" {
+		return fmt.Sprintf("%s %s", c.Name, path)
+	}
+	return c.Name
 }
 
 func (m Model) viewDone() string {

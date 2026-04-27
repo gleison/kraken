@@ -88,9 +88,20 @@ func NewOpenAI(cfg Config) *OpenAI {
 	}
 }
 
+type oaiToolCall struct {
+	ID       string `json:"id,omitempty"`
+	Type     string `json:"type,omitempty"` // "function"
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
+}
+
 type oaiMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string        `json:"role"`
+	Content    string        `json:"content,omitempty"`
+	ToolCalls  []oaiToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string        `json:"tool_call_id,omitempty"`
 }
 
 type oaiJSONSchema struct {
@@ -104,11 +115,23 @@ type oaiResponseFormat struct {
 	JSONSchema *oaiJSONSchema `json:"json_schema,omitempty"`
 }
 
+type oaiToolFn struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Parameters  any    `json:"parameters"`
+}
+
+type oaiTool struct {
+	Type     string    `json:"type"` // always "function" for now
+	Function oaiToolFn `json:"function"`
+}
+
 type oaiRequest struct {
 	Model          string             `json:"model"`
 	Messages       []oaiMessage       `json:"messages"`
 	MaxTokens      int                `json:"max_tokens,omitempty"`
 	ResponseFormat *oaiResponseFormat `json:"response_format,omitempty"`
+	Tools          []oaiTool          `json:"tools,omitempty"`
 }
 
 type oaiResponse struct {
@@ -174,7 +197,18 @@ func (o *OpenAI) doRequest(ctx context.Context, req Request, level formatLevel) 
 		messages = append(messages, oaiMessage{Role: "system", Content: req.System})
 	}
 	for _, m := range req.Messages {
-		messages = append(messages, oaiMessage{Role: string(m.Role), Content: m.Content})
+		oaiM := oaiMessage{
+			Role:       string(m.Role),
+			Content:    m.Content,
+			ToolCallID: m.ToolCallID,
+		}
+		for _, tc := range m.ToolCalls {
+			call := oaiToolCall{ID: tc.ID, Type: "function"}
+			call.Function.Name = tc.Name
+			call.Function.Arguments = tc.Args
+			oaiM.ToolCalls = append(oaiM.ToolCalls, call)
+		}
+		messages = append(messages, oaiM)
 	}
 
 	maxTokens := req.MaxTokens
@@ -187,6 +221,7 @@ func (o *OpenAI) doRequest(ctx context.Context, req Request, level formatLevel) 
 		Messages:       messages,
 		MaxTokens:      maxTokens,
 		ResponseFormat: buildResponseFormat(req.JSONSchema, level),
+		Tools:          buildOAITools(req.Tools),
 	}
 
 	body, err := json.Marshal(payload)
@@ -237,7 +272,36 @@ func (o *OpenAI) doRequest(ctx context.Context, req Request, level formatLevel) 
 		return nil, errors.New("openai: empty response")
 	}
 
-	return &Response{Content: parsed.Choices[0].Message.Content}, nil
+	choice := parsed.Choices[0].Message
+	out := &Response{Content: choice.Content}
+	for _, tc := range choice.ToolCalls {
+		out.ToolCalls = append(out.ToolCalls, ToolCall{
+			ID:   tc.ID,
+			Name: tc.Function.Name,
+			Args: tc.Function.Arguments,
+		})
+	}
+	return out, nil
+}
+
+// buildOAITools converts the provider-agnostic tool descriptions into the
+// shape OpenAI's Chat Completions API expects.
+func buildOAITools(tools []Tool) []oaiTool {
+	if len(tools) == 0 {
+		return nil
+	}
+	out := make([]oaiTool, len(tools))
+	for i, t := range tools {
+		out[i] = oaiTool{
+			Type: "function",
+			Function: oaiToolFn{
+				Name:        t.Name,
+				Description: t.Description,
+				Parameters:  t.Schema,
+			},
+		}
+	}
+	return out
 }
 
 func truncate(s string, n int) string {

@@ -203,6 +203,11 @@ func (m Model) handleEvent(msg eventMsg) (tea.Model, tea.Cmd) {
 		// Task pointers are shared with the plan; state already updated.
 		// Stick to the bottom so the user sees the latest output.
 		m.scrollOffset = 1 << 20
+	case orchestrator.EventToolCall:
+		if ev.Tool != nil {
+			m.toolActivity = append(m.toolActivity, *ev.Tool)
+		}
+		m.scrollOffset = 1 << 20
 	case orchestrator.EventTaskFailed:
 		m.err = ev.Err
 		m.scrollOffset = 1 << 20

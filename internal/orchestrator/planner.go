@@ -12,7 +12,7 @@ import (
 	"github.com/gleison/kraken/internal/llm"
 )
 
-const plannerSystem = `You are a planner. Your job is to break a complex goal into a short, ordered list of simple, direct tasks that an LLM executor can perform, each in one focused step.
+const plannerBaseSystem = `You are a planner. Your job is to break a complex goal into a short, ordered list of simple, direct tasks that an LLM executor can perform, each in one focused step.
 
 Rules:
 - Produce between 2 and 6 tasks.
@@ -24,14 +24,48 @@ Rules:
   {"tasks":[{"title":"...","instruction":"..."}]}
 - Write tasks in the same language as the user goal.`
 
+const plannerToolHint = `
+
+The executor has these workspace tools available; instruct it to use them when the goal touches files (instead of asking the user to paste contents):
+%s
+Always tell the executor to call read_file before editing, and to call write_file with the FULL new contents when modifying a file.`
+
 // Planner decomposes a goal into a Plan via an LLM call.
 type Planner struct {
 	client llm.Client
+	// toolHint, when non-empty, is appended to the planner's system
+	// prompt so the model knows which workspace tools the executor can
+	// use and writes plan steps accordingly.
+	toolHint string
 }
 
 // NewPlanner wires the Planner with its LLM dependency.
 func NewPlanner(c llm.Client) *Planner {
 	return &Planner{client: c}
+}
+
+// AnnounceTools registers the tools the executor will have available, so
+// the planner can write tasks that delegate file work to them. tools is
+// a slice of "name — description" snippets (one per tool); pass nil to
+// remove a previous announcement.
+func (p *Planner) AnnounceTools(tools []string) {
+	if len(tools) == 0 {
+		p.toolHint = ""
+		return
+	}
+	var b strings.Builder
+	for _, t := range tools {
+		b.WriteString("- ")
+		b.WriteString(t)
+		b.WriteString("\n")
+	}
+	p.toolHint = fmt.Sprintf(plannerToolHint, b.String())
+}
+
+// systemPrompt returns the full prompt for the planner, including any
+// tool announcement.
+func (p *Planner) systemPrompt() string {
+	return plannerBaseSystem + p.toolHint
 }
 
 type plannerPayload struct {
@@ -49,7 +83,7 @@ func (p *Planner) Plan(ctx context.Context, goal string) (*domain.Plan, error) {
 	}
 
 	resp, err := p.client.Complete(ctx, llm.Request{
-		System: plannerSystem,
+		System: p.systemPrompt(),
 		Messages: []llm.Message{
 			{Role: llm.RoleUser, Content: goal},
 		},
