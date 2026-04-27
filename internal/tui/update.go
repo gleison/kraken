@@ -109,46 +109,79 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // handleScroll updates scrollOffset for navigation keys and returns whether
-// the key was consumed. Clamping to the valid range happens in viewport().
-// Ctrl+D / Ctrl+U page down/up; arrow keys move one line; g/G jump to
-// top/bottom (with home/end as fallbacks).
+// the key was consumed. The current scroll offset is clamped to the body's
+// real maxOffset before any relative movement, so an up-press from the
+// auto-scrolled bottom (where scrollOffset is intentionally huge) actually
+// moves up one page instead of staying pinned to the bottom.
 func (m *Model) handleScroll(msg tea.KeyMsg) bool {
-	if msg.Type == tea.KeyCtrlD {
-		step := m.bodyHeight("")
-		if step < 1 {
-			step = 1
-		}
-		m.scrollOffset += step
-		return true
+	consumed, action := m.applyScroll(msg)
+	if consumed {
+		log.Printf("tui: scroll %s offset=%d", action, m.scrollOffset)
 	}
-	if msg.Type == tea.KeyCtrlU {
-		step := m.bodyHeight("")
-		if step < 1 {
-			step = 1
-		}
-		m.scrollOffset -= step
-		if m.scrollOffset < 0 {
-			m.scrollOffset = 0
-		}
-		return true
+	return consumed
+}
+
+func (m *Model) applyScroll(msg tea.KeyMsg) (bool, string) {
+	switch {
+	case msg.Type == tea.KeyCtrlD:
+		m.scrollBy(+m.scrollPageStep())
+		return true, "pgdown"
+	case msg.Type == tea.KeyCtrlU:
+		m.scrollBy(-m.scrollPageStep())
+		return true, "pgup"
 	}
 	switch msg.String() {
 	case "up", "k":
-		if m.scrollOffset > 0 {
-			m.scrollOffset--
-		}
-		return true
+		m.scrollBy(-1)
+		return true, "up"
 	case "down", "j":
-		m.scrollOffset++
-		return true
+		m.scrollBy(+1)
+		return true, "down"
 	case "home", "g":
 		m.scrollOffset = 0
-		return true
+		return true, "home"
 	case "end", "G":
-		m.scrollOffset = 1 << 20 // viewport() will clamp to maxOffset
-		return true
+		m.scrollOffset = 1 << 20 // viewport clamps; max is fine here
+		return true, "end"
 	}
-	return false
+	return false, ""
+}
+
+// scrollBy applies a relative move after first re-grounding scrollOffset
+// to the real maxOffset, so movement is always relative to the visible
+// position, not to a sentinel left over from auto-scroll.
+func (m *Model) scrollBy(delta int) {
+	pinned := m.renderPinnedPlan()
+	body := m.renderBody()
+	bodyHeight := m.bodyHeight(pinned)
+	if bodyHeight < 1 {
+		bodyHeight = 1
+	}
+	totalLines := strings.Count(body, "\n") + 1
+	maxOffset := totalLines - bodyHeight
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	off := m.scrollOffset
+	if off > maxOffset {
+		off = maxOffset
+	}
+	off += delta
+	if off < 0 {
+		off = 0
+	}
+	if off > maxOffset {
+		off = maxOffset
+	}
+	m.scrollOffset = off
+}
+
+func (m *Model) scrollPageStep() int {
+	step := m.bodyHeight("")
+	if step < 1 {
+		return 1
+	}
+	return step
 }
 
 func (m Model) handleEvent(msg eventMsg) (tea.Model, tea.Cmd) {
