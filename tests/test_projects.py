@@ -11,7 +11,7 @@ from kraken.session import Session
 class ProjectTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         await project(self.root)
 
     async def asyncTearDown(self):
@@ -70,3 +70,12 @@ class ProjectTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(resumed.plan.revision, p.revision)
         finally:
             resumed.close()
+
+
+    async def test_catalog_canonicalizes_an_alias_without_duplicate_project(self):
+        alias = self.root / 'project-alias'
+        alias.symlink_to(self.root, target_is_directory=True)
+        catalog = Catalog(self.root / '.kraken/catalog')
+        catalog.add(alias)
+        catalog.add(self.root)
+        self.assertEqual(catalog.projects(), [self.root.resolve()])

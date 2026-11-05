@@ -38,6 +38,10 @@ A primeira tentativa dos novos testes TUI foi interrompida porque o sandbox de e
 
 Workflows configurados não equivalem a resultados executados. Jobs opcionais sem runner não são testes aprovados. O core hospedado não tem Docker e reporta os skips de integração em JSON; o job Linux de integração exige zero skips.
 
+A primeira execução hospedada em macOS identificou três asserts de fixtures que comparavam aliases `/var` com seus caminhos reais `/private/var`. As fixtures passaram a usar caminhos canônicos, preservando os asserts, e foi acrescentada uma regressão de alias no catálogo. Essa falha não foi ocultada como skip. A suíte de CI passa a ter 83 casos; seus resultados são registrados nos artifacts de cada execução.
+
+A CI automática roda em PRs e em pushes para `main`, evitando duplicar a mesma matriz em push da branch e evento de PR.
+
 ## Reproduzir
 
 ```sh
