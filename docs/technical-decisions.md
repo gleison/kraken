@@ -84,7 +84,7 @@ Não importar automaticamente `.tasks/BACKLOG.md`, `.claude/commands` ou configu
 - P02–P06 materializadas na implementação inicial e documentação; validação multiplataforma ainda pendente.
 - 15 verificações experimentais executadas e aprovadas; testes do produto são contados separadamente.
 - Runtime implementado e exercitado somente em fixtures, com modelos controlados. Nenhuma API de modelo remoto foi chamada.
-- Runner legado preservado e não executado; nenhum commit foi feito no checkout do Kraken. Commits dos testes pertencem apenas a repositórios temporários.
+- Na etapa K-01, o runner legado foi preservado e não executado; commits de testes pertenciam apenas a repositórios temporários. O desenvolvimento posterior foi commitado e enviado ao [PR #2](https://github.com/gleison/kraken/pull/2) com autorização explícita do usuário.
 
 
 ## Fechamento posterior do escopo

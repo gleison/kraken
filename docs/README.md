@@ -9,6 +9,7 @@ Status: base do MVP e detalhamento aprovados em conversa. Implementação autori
 - [Harness baseado no artigo fornecido](harness.md): princípios, mecanismos e limites.
 - [Uso e contratos](usage.md): formato do plano e recuperação.
 - [Auditoria de fechamento de escopo](scope-audit.md): lacunas identificadas e seus testes.
+- [Rechecagem requisito por requisito](requirements-audit.md): R01–R18, AC01–AC12 e limites das evidências.
 - [Validação](validation.md): testes executados e o que permanece não verificado.
 - [Decisões técnicas e evidências de K-01](technical-decisions.md): escolhas, experimentos e resolução da referência pelo PDF.
 
@@ -16,6 +17,6 @@ O `README.md` da raiz descreve a versão Python disponível. `kraken.sh` permane
 
 ## Limites desta entrega
 
-Na primeira entrega foram escritos apenas documentos. Após a aprovação e o recebimento do PDF, o núcleo e a TUI foram implementados e testados com modelos controlados, Docker e Git reais em projetos temporários. Não houve chamada a modelos remotos, execução de tarefas reais do usuário, commit no checkout do Kraken, push ou publicação.
+Na primeira entrega foram escritos apenas documentos. Após a aprovação e o recebimento do PDF, o núcleo e a TUI foram implementados e testados com modelos controlados, Docker e Git reais em projetos temporários. O desenvolvimento foi enviado ao GitHub no [PR #2](https://github.com/gleison/kraken/pull/2), conforme autorização do usuário. Não houve chamada a modelos remotos nem execução de tarefas reais do usuário. Esta rechecagem não publica o ambiente nem faz merge do PR.
 
 O bloqueio de acesso ao artigo foi resolvido pelo PDF. As escolhas estão em [technical-decisions.md](technical-decisions.md); evidências atuais estão em [validation.md](validation.md). Não é necessário publicar o ambiente para ler a referência fornecida.

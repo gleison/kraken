@@ -28,6 +28,10 @@ class PlanningTests(unittest.IsolatedAsyncioTestCase):
         async def complete(role, messages, tools=()):
             calls.append((role.name, messages))
             if len(calls) == 1:
+                context = json.loads(messages[1]['content'].split('\nReturn')[0])
+                self.assertEqual(context['available_roles']['backend']['profile']['model'], 'fixture')
+                self.assertIn('skill_hash', context['available_roles']['backend'])
+                self.assertIn('run_command', context['available_roles']['backend']['tools'])
                 return Reply(json.dumps({'question': 'Must output exactly hello?', 'recommendation': 'Yes'}), [], None)
             if role.name == 'product':
                 return Reply(json.dumps({'plan': plan().to_dict()}), [], None)

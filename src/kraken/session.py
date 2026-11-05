@@ -22,7 +22,7 @@ or {"plan": {...}}. Questions may include "memory": {"decisions": {"stable-key":
 Update durable memory to retain settled decisions; it is not approval. A plan has objective, scope, exclusions (strings), decisions (list of strings),
 glossary (object), uncertainties (list), fixtures (object path->sha256), image (registry image@sha256:digest),
 limits (concurrency,calls,active_seconds,command_seconds,attempt_seconds,attempts,turns,output_tokens,
-counter_only boolean, max_estimated_cost_usd optional numeric threshold), tasks (list). Each task: id,title,goal,role (backend/frontend/platform), allowed_paths
+counter_only boolean, max_estimated_cost_usd optional numeric threshold), tasks (list). Each task: id,title,goal,role (one of the configured available_roles), allowed_paths
 (list of explicit relative files/directories, no globs), depends_on (list of task ids), references (list of paths),
 criteria (list of {id,description}), checks (list of {id,argv:list,criteria:list of ids,
 category:behaviour/maintainability/architecture,timing:before_integration/after_integration/health,
@@ -32,6 +32,8 @@ Every criterion needs an executable check and every task a before_integration be
 Ask for missing decisions, approved examples, actual image digest and actual commands; do not invent them.
 Do not set counter_only true unless the user explicitly accepted operation without a monetary ceiling.
 Only propose a plan when blocking uncertainty is resolved. Do not approve or execute it.
+Propose the implementation team through task roles, using their actual skills, models and authorized tools.
+Product, orchestrator, QA and reviewer always participate; optional specialist roles must be justified by the tasks.
 Return a whole consolidated revision when the user changes an existing plan. No Markdown fences.'''
 
 
@@ -123,7 +125,8 @@ class Session:
             if total >= 40_000:
                 break
             try:
-                text = path.read_text()[:4000]
+                with path.open() as source:
+                    text = source.read(4000)
             except (UnicodeError, OSError):
                 continue
             context[name] = text
@@ -144,7 +147,7 @@ class Session:
                             'current_plan': self.plan.to_dict() if self.plan else None,
                             'review_findings': self.store.plan_reviews(self.plan, self.config.revision) if self.plan else {},
                             'pending_decision': self.store.get('planning_decision'),
-                            'user_message': clean, 'available_roles': list(self.config._roles),
+                            'user_message': clean, 'available_roles': self.config.snapshot()['roles'],
                             'default_limits': asdict(Limits()), 'planning_budget': asdict(self.config.planning_limits)}) + '\n' + PLAN_FORMAT
         response = json_object(await agent(self.client, self.config.role('product'), prompt,
                                           ProjectReader(self.root, self.store)))

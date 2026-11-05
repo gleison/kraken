@@ -36,6 +36,7 @@ class DockerExecutor:
         self.policy = policy
 
     async def preflight(self):
+        require(os.getuid() != 0, 'Execute o Kraken com usuário não root para preservar o isolamento do executor')
         endpoint = await process([*self.docker, 'context', 'inspect', self.docker[-1],
                                   '--format', '{{.Endpoints.docker.Host}}'], timeout=20)
         require(endpoint.code == 0 and endpoint.stdout.strip().startswith('unix://'),

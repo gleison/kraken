@@ -50,9 +50,15 @@ O hash e a imagem são verificados. Critérios sem check, ciclos, referências d
 
 O JSON é a fonte de autoridade das tarefas, limites e aprovações. `plan.md` é uma visualização. Alterações manuais em `plan.json`, perfis ou skills invalidam a aprovação até nova revisão. O Orquestrador confere os artefatos antes de despachar e antes de cada comando do agente.
 
+O time exibido deriva dos papéis das tarefas, com Produto, Orquestrador, QA e Revisor como participantes obrigatórios. O planejamento recebe os perfis e capacidades configurados para propor as especialidades necessárias. O modal de aprovação apresenta modelos, ferramentas, skills e requisitos junto do plano.
+
+Tarefas sem dependência podem executar em paralelo quando seus caminhos de edição não se sobrepõem. Arquivos iguais ou diretórios ancestrais são serializados. O scheduler continua procurando outras tarefas independentes enquanto esse recurso está ocupado.
+
 ## Ferramentas e imagem
 
 A imagem aprovada precisa fornecer as ferramentas do projeto. O Kraken não presume que toda imagem contenha Python: escrita usa ferramentas POSIX e stdin; comandos de build, testes e navegador dependem da imagem escolhida. Falta de ferramenta produz falha e feedback, não instalação silenciosa ou fallback para a máquina.
+
+Execute o Kraken com usuário não root e acesso ao contexto Docker local. O executor reutiliza UID/GID desse usuário e recusa UID zero antes de iniciar containers.
 
 Planejamento expõe somente leitura/listagem delimitadas do projeto, sem shell no host. Implementação recebe ferramentas dentro do container. QA e revisores recebem montagem de leitura e podem executar verificações com temporários em `/tmp`; checks que exigem gravar na árvore do projeto precisam ser adaptados para um local temporário antes de aprovar o plano.
 
@@ -85,6 +91,8 @@ O limite monetário opcional é **estimado** e depende de preços fornecidos na 
 O catálogo fica em `$XDG_STATE_HOME/kraken` (ou `~/.local/state/kraken`). Use `kraken tui --state-dir /caminho/do/catalogo` para escolher outro local. Cada projeto mantém seus dados em `.kraken/runtime/sessions/<id>`. Sessões do layout antigo continuam na localização legada, sem mover workspaces/journals. Um lock do projeto impede duas sessões simultâneas editando o mesmo plano de apresentação.
 
 `plan.json`/`plan.md` mostram a sessão ativa. Antes de trocar, seus rascunhos são preservados na sessão anterior; retomar restaura a apresentação correspondente, inclusive edições manuais. Configuração de provedores/skills continua sendo do projeto: alterações invalidam aprovações anteriores. O orçamento e histórico de cada sessão são preservados.
+
+Na aba **Tarefas**, a coluna de dependências mostra os pré-requisitos. **Inspecionar evidências da tarefa** lista até 100 registros persistidos, dos mais recentes aos mais antigos; selecione um para ver critérios, versão, resultado e saída. A consulta independe do log de eventos. Conteúdos acima de 60 mil caracteres são sinalizados como visualização parcial; o registro integral permanece no SQLite da sessão.
 
 ## Manifesto de skill
 

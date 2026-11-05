@@ -8,7 +8,7 @@ import time
 
 from .agent import agent, json_object, verdict, verdict_instruction
 from .config import Config
-from .domain import DecisionRequired, KrakenError, canonical, require
+from .domain import DecisionRequired, KrakenError, VerificationFailed, canonical, require
 from .git import Repository, git
 from .tools import DockerExecutor, Tools
 from .harness import normalize
@@ -90,11 +90,18 @@ class Orchestrator:
                 ready = [t for t in self.plan.tasks if rows[t.id]['status'] == 'ready'
                          and all(rows[d]['status'] == 'done' for d in t.depends_on)]
                 capacity = self.plan.limits.concurrency - len(self.active)
-                for task in ready[:capacity]:
+                occupied = [t for t in self.plan.tasks if rows[t.id]['status'] in {'running', 'validating', 'integrating'}]
+                for task in ready:
+                    if capacity <= 0:
+                        break
+                    if any(task.overlaps(other) for other in occupied):
+                        continue
                     self.gate()
                     attempt = self.store.claim(task.id)
                     future = asyncio.create_task(self.execute(task, attempt))
                     self.active.add(future)
+                    occupied.append(task)
+                    capacity -= 1
                 if not self.active:
                     break
                 done, _ = await asyncio.wait(self.active, return_when=asyncio.FIRST_COMPLETED)
@@ -197,7 +204,17 @@ class Orchestrator:
         outcome = normalize(check, result)
         data = {'check': asdict(check), 'result': asdict(result), 'outcome': asdict(outcome)}
         data['evidence_id'] = self.store.evidence(task.id, attempt, version, 'computational', outcome.ok, data)
-        require(outcome.ok, f'Check {task.id}/{check.id}: {outcome.reason}')
+        if not outcome.ok:
+            observation = {'outcome': asdict(outcome), 'argv': check.argv,
+                           'result': {'code': result.code, 'stdout': result.stdout[:2000],
+                                      'stderr': result.stderr[:2000], 'truncated': result.truncated,
+                                      'feedback_excerpt': len(result.stdout) > 2000 or len(result.stderr) > 2000,
+                                      'artifact_paths': list(result.artifacts)}}
+            raise VerificationFailed({'task': task.id, 'version': version, 'check': check.id,
+                'criteria': [asdict(c) for c in task.criteria if c.id in check.criteria],
+                'expected': 'Satisfy these criteria and the approved check policy',
+                'observed': observation, 'evidence_id': data['evidence_id'],
+                'next_action': 'Inspect the recorded command output; correct within the contract and rerun this check'})
         return data
 
     async def evaluate(self, workspace, task, attempt, diff_base, *, integrated=False):
@@ -222,13 +239,22 @@ class Orchestrator:
             criteria = [c.id for c in task.criteria]
             prompt = canonical({'contract': asdict(task), 'version': version, 'diff': diff,
                                 'evidence': evidence, 'integrated': integrated,
+                                'plan_revision': self.plan.revision,
+                                'objective': self.plan.objective, 'scope': self.plan.scope,
+                                'exclusions': self.plan.exclusions, 'glossary': self.plan.glossary,
+                                'environment': {'image': self.plan.image, 'network': 'none'},
                                 'decisions': self.plan.decisions}) + '\n' + verdict_instruction(criteria)
             tools = Tools(self.executor, workspace, task, readonly=True, fixtures=self.plan.fixtures)
             result = verdict(await agent(self.client, self.config.role(name), prompt, tools), criteria)
             proofs.append(self.store.evidence(task.id, attempt, version, name, result['passed'], result))
             if result.get('needs_decision'):
                 raise DecisionRequired(result['question'] + '\nRecomendação: ' + result['recommendation'])
-            require(result['passed'], f'{name}: {result["feedback"]}')
+            if not result['passed']:
+                raise VerificationFailed({'task': task.id, 'version': version, 'reviewer': name,
+                    'criteria': [asdict(c) for c in task.criteria],
+                    'expected': 'Independent acceptance of every approved criterion',
+                    'observed': result, 'evidence_id': proofs[-1],
+                    'next_action': 'Resolve the recorded findings within the contract, then repeat checks and independent review'})
         return proofs
 
     async def execute(self, task, attempt):
@@ -243,7 +269,9 @@ class Orchestrator:
                 prompt = canonical({'contract': asdict(task), 'plan_revision': self.plan.revision,
                                     'project': self.root.name, 'session': self.store.get('session'),
                                     'attempt': attempt, 'base_commit': base, 'dependency_results': dependencies,
+                                    'role': self.config.role(task.role).snapshot(),
                                     'environment': {'image': self.plan.image, 'network': 'none'},
+                                    'objective': self.plan.objective, 'scope': self.plan.scope,
                                     'decisions': self.plan.decisions, 'glossary': self.plan.glossary,
                                     'exclusions': self.plan.exclusions, 'feedback': prior['detail'],
                                     'limits': asdict(self.plan.limits)})
@@ -302,4 +330,5 @@ class Orchestrator:
                 self.store.set('control', 'recovery_required')
             self.store.task(task.id, 'blocked' if blocked else 'ready', detail)
             self.store.emit('correction_feedback', task=task.id, attempt=attempt,
-                            feedback=detail, harness_suggestion='Revisar controles se esta falha se repetir')
+                            feedback=exc.feedback if isinstance(exc, VerificationFailed) else detail,
+                            harness_suggestion='Revisar controles se esta falha se repetir')

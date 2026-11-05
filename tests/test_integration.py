@@ -43,6 +43,13 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('qa', kinds)
         self.assertIn('reviewer', kinds)
         self.assertIn('computational', kinds)
+        import json
+        for role, messages in fake.calls:
+            prompt = json.loads(messages[1]['content'].split('\n')[0])
+            self.assertEqual(prompt['scope'], orch.plan.scope)
+            self.assertEqual(prompt['plan_revision'], orch.plan.revision)
+            if role == 'backend':
+                self.assertEqual(prompt['role']['skill_hash'], orch.config.role('backend').skill_hash)
 
     async def test_unapproved_plan_never_runs_or_probes(self):
         p = plan()
@@ -69,6 +76,30 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(row['status'], 'done')
         self.assertEqual(row['attempt'], 2)
         self.assertTrue(any(e['kind'] == 'correction_feedback' for e in self.session.store.events()))
+        correction = next(e['payload']['feedback'] for e in self.session.store.events()
+                          if e['kind'] == 'correction_feedback')
+        record = next(r for r in self.session.store.task_evidence('TASK-1') if r['id'] == correction['evidence_id'])
+        self.assertEqual(record['kind'], 'qa')
+        self.assertFalse(record['passed'])
+        self.assertEqual(record['version'], correction['version'])
+        self.assertIn('C1', correction['observed']['feedback'])
+        retry_prompt = next(messages[1]['content'] for role, messages in fake.calls
+                            if role == 'orchestrator' and '"attempt":2' in messages[1]['content'])
+        self.assertIn(correction['evidence_id'], retry_prompt)
+
+    async def test_overlapping_paths_serialize_without_blocking_unrelated_work(self):
+        p = plan()
+        second = replace(p.tasks[0], id='TASK-2')
+        unrelated = plan('TASK-3', 'third.txt').tasks[0]
+        orch, _ = self.orchestrator(replace(p, tasks=(*p.tasks, second, unrelated)))
+        await orch.run()
+        self.assertTrue(all(r['status'] == 'done' for r in self.session.store.tasks()))
+        events = self.session.store.events(limit=1000)
+        started = {e['payload']['task']: e['seq'] for e in events if e['kind'] == 'task_started'}
+        done = {e['payload']['task']: e['seq'] for e in events
+                if e['kind'] == 'task_state' and e['payload']['status'] == 'done'}
+        self.assertGreater(started['TASK-2'], done['TASK-1'])
+        self.assertLess(started['TASK-3'], done['TASK-1'])
 
     async def test_two_independent_tasks_then_dependent(self):
         p = plan()
@@ -92,6 +123,31 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
             await orch.run()
         self.assertEqual((self.root / 'user.txt').read_text(), 'must survive')
         self.assertFalse(fake.probed)
+
+    async def test_arbitrary_shell_change_outside_contract_is_never_committed(self):
+        import json
+        p = plan()
+        orch, fake = self.orchestrator(replace(p, limits=replace(p.limits, attempts=1)))
+        original_complete = fake.complete
+
+        async def complete(role, messages, tools=(), tool_choice=None):
+            reply = await original_complete(role, messages, tools, tool_choice)
+            if role.name == 'backend' and reply.tool_calls:
+                function = reply.tool_calls[0]['function']
+                arguments = json.loads(function['arguments'])
+                arguments['argv'][-1] += ' && printf unauthorized > unrelated.txt'
+                function['arguments'] = json.dumps(arguments)
+            return reply
+
+        fake.complete = complete
+        await orch.run()
+        row = self.session.store.tasks()[0]
+        self.assertEqual(row['status'], 'blocked')
+        self.assertIn('fora do contrato: unrelated.txt', row['detail'])
+        self.assertEqual(await git(orch.repo.integration, 'rev-parse', 'HEAD'), self.original)
+        isolated = orch.repo.work / 'TASK-1-1'
+        self.assertEqual(await git(isolated, 'diff', '--cached', '--name-only'), '')
+        self.assertFalse((self.root / 'unrelated.txt').exists())
 
     async def test_cancel_blocks_uncertain_attempt_without_success(self):
         orch, fake = self.orchestrator(delay=0.3)
@@ -118,6 +174,12 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
         await orch.run()
         self.assertEqual(self.session.store.tasks()[0]['status'], 'blocked')
         self.assertEqual(await git(orch.repo.integration, 'rev-parse', 'HEAD'), self.original)
+        feedback = next(e['payload']['feedback'] for e in self.session.store.events()
+                        if e['kind'] == 'correction_feedback')
+        self.assertEqual(feedback['check'], 'CHECK-1')
+        self.assertEqual(feedback['criteria'][0]['id'], 'C1')
+        self.assertIn('Ran 0 tests', feedback['observed']['result']['stdout'])
+        self.assertEqual(self.session.store.task_evidence('TASK-1')[0]['id'], feedback['evidence_id'])
 
     async def test_changed_role_configuration_blocks_execution(self):
         orch, fake = self.orchestrator()
@@ -178,3 +240,17 @@ class IntegrationTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(KrakenError):
             await tools.call('write_file', {'path': 'result.txt', 'content': 'unauthorized change'})
         self.assertEqual((workspace / 'result.txt').read_text(), 'hello\n')
+
+    async def test_real_container_enforces_network_metadata_and_readonly_boundaries(self):
+        orch, _ = self.orchestrator()
+        await orch.executor.preflight()
+        await orch.repo.prepare()
+        workspace, _ = await orch.repo.workspace(orch.plan.tasks[0], 1)
+        script = ('test "$(ls /sys/class/net)" = lo && test "$(id -u)" -ne 0 && '
+                  'test ! -S /var/run/docker.sock && test -z "$HTTP_PROXY$HTTPS_PROXY$ALL_PROXY" && '
+                  '! touch /outside-root && ! touch /workspace/.git/forbidden && '
+                  '! touch /workspace/forbidden && printf writable > /tmp/scratch')
+        result = await orch.executor.run(workspace, ['sh', '-c', script], readonly=True)
+        self.assertEqual(result.code, 0, result.stderr)
+        self.assertFalse((workspace / 'forbidden').exists())
+        self.assertFalse((workspace / '.git/forbidden').exists())

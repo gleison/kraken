@@ -2,6 +2,8 @@
 
 Esta auditoria substitui a interpretação anterior de que a existência de código em K-01–K-16 bastava para concluir o escopo. Cada frente abaixo exige comportamento verificável, sem confundir implementação e validação externa.
 
+A [rechecagem posterior](requirements-audit.md) mapeia todos os requisitos e critérios e registra correções adicionais de concorrência, feedback e TUI.
+
 | Frente | Comportamento implementado | Evidência específica |
 | --- | --- | --- |
 | Planejamento e revisão | Rodadas limitadas de revisão independente, correção técnica e nova revisão; decisão humana quando falta intenção; sem aprovação automática. Campos de escopo, decisões, imagem, fixtures e limites não podem ser alterados pela correção automática. | `test_review_repairs_technical_findings_and_rechecks_with_fresh_context`, `test_review_requests_only_missing_human_decision`, `test_automatic_repair_cannot_change_scope_or_budget`, `test_review_round_limit_keeps_plan_unapproved`. |

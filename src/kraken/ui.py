@@ -35,6 +35,42 @@ class ApprovePlan(ModalScreen):
             self.dismiss(None)
 
 
+class TaskEvidence(ModalScreen):
+    CSS = 'TaskEvidence { background: $surface; } #evidence-list { height: 30%; } #evidence-records { height: 1fr; }'
+
+    def __init__(self, task, records, read):
+        super().__init__()
+        self.task_id, self.records, self.read = task, records, read
+
+    def compose(self):
+        yield Static(f'Evidências de {self.task_id} — até 100 registros, mais recentes primeiro')
+        yield DataTable(id='evidence-list', cursor_type='row')
+        yield RichLog(id='evidence-records', wrap=True, markup=False, max_lines=10000)
+        yield Button('Voltar', id='evidence-close')
+
+    def on_mount(self):
+        table = self.query_one('#evidence-list', DataTable)
+        table.add_columns('ID', 'Tentativa', 'Tipo', 'Resultado', 'Versão')
+        for record in self.records:
+            table.add_row(record['id'], str(record['attempt']), record['kind'],
+                          'aprovada' if record['passed'] else 'reprovada', record['version'], key=record['id'])
+        if not self.records:
+            self.query_one('#evidence-records', RichLog).write('Nenhuma evidência persistida para esta tarefa.')
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted):
+        log = self.query_one('#evidence-records', RichLog)
+        log.clear()
+        text = json.dumps(self.read(event.row_key.value), ensure_ascii=False, indent=2)
+        log.write(text[:60000])
+        if len(text) > 60000:
+            log.write('Visualização limitada a 60 mil caracteres. O registro integral permanece no estado da sessão.')
+
+    def on_button_pressed(self, event: Button.Pressed):
+        event.stop()
+        if event.button.id == 'evidence-close':
+            self.dismiss(None)
+
+
 class KrakenApp(App):
     TITLE = 'Kraken — Orquestrador'
     BINDINGS = [('q', 'request_quit', 'Sair'), ('p', 'pause_run', 'Pausar'), ('c', 'cancel_run', 'Cancelar')]
@@ -79,6 +115,7 @@ class KrakenApp(App):
                 with VerticalScroll():
                     yield Markdown('Nenhum plano gerado ou importado.', id='plan')
             with TabPane('Tarefas', id='tasks-tab'):
+                yield Button('Inspecionar evidências da tarefa', id='inspect-evidence')
                 yield DataTable(id='tasks', cursor_type='row')
             with TabPane('Agentes', id='agents-tab'):
                 yield DataTable(id='agents', cursor_type='row')
@@ -90,7 +127,7 @@ class KrakenApp(App):
         self._agents = self.query_one('#agents', DataTable)
         self._agents.add_columns('Atribuição', 'Papel', 'Modelo', 'Estado')
         self._known_agents = set()
-        self.query_one('#tasks', DataTable).add_columns('Tarefa', 'Estado', 'Tentativa', 'Detalhe')
+        self.query_one('#tasks', DataTable).add_columns('Tarefa', 'Dependências', 'Estado', 'Tentativa', 'Detalhe')
         for entry in self.session.store.get('interview', [])[-20:]:
             self.query_one('#conversation', RichLog).write('Você: ' + entry['user'])
             self.query_one('#conversation', RichLog).write('Planejamento: ' + entry['response'])
@@ -110,8 +147,13 @@ class KrakenApp(App):
                    f'Custo estimado USD: {store.get("estimated_cost_usd") if not store.get("cost_unavailable", True) else "indisponível"} | API por ação explícita')
         self._summary.update(summary)
         table = self._table
+        try:
+            plan = self.session.plan
+            dependencies = {t.id: ', '.join(t.depends_on) or '—' for t in plan.tasks} if plan else {}
+        except KrakenError:
+            dependencies = {}
         for row in store.tasks():
-            values = (row['id'], row['status'], str(row['attempt']), row['detail'][:180])
+            values = (row['id'], dependencies.get(row['id'], '—'), row['status'], str(row['attempt']), row['detail'][:180])
             if row['id'] not in self._known_tasks:
                 table.add_row(*values, key=row['id'])
                 self._known_tasks.add(row['id'])
@@ -203,6 +245,12 @@ class KrakenApp(App):
             if table.row_count:
                 task_id = table.get_row_at(table.cursor_row)[0]
                 self.launch(self.session.retry(task_id))
+        elif action == 'inspect-evidence':
+            table = self.query_one('#tasks', DataTable)
+            if table.row_count:
+                task_id = table.get_row_at(table.cursor_row)[0]
+                self.push_screen(TaskEvidence(task_id, self.session.store.task_evidence(task_id, summary=True),
+                                              self.session.store.evidence_record))
 
     def switch_project(self, choice):
         if choice:

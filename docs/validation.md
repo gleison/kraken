@@ -1,5 +1,15 @@
 # Validação e aceite
 
+## Rechecagem integral de requisitos
+
+A [matriz R01–R18 e AC01–AC12](requirements-audit.md) registra os pontos conferidos e as correções adicionais: sobreposição de caminhos no scheduler, feedback vinculado a evidências, dependências/inspeção na TUI e capacidades dos papéis no planejamento. Foram acrescentados cenários de isolamento real e recusa de alteração fora do contrato, além de reforços nas verificações existentes.
+
+O artefato final passou nos **88 testes: zero falhas, erros ou skips**, em 40,146 segundos, com Docker/Git reais e modelos controlados. Relatório local: `/tmp/kraken-reaudit-verified.json`. A importação foi conferida em `/tmp/kraken-v02-venv/lib/python3.12/site-packages/kraken`, sem usar a instalação editável do código-fonte. SHA-256 do wheel: `62f952b3887f3cd0f1155a5e250cbbc84736622da717b3a74a211717bf279fdc`.
+
+A CI anterior do commit `2ac7593` foi conferida na [execução 42118655208](https://github.com/gleison/kraken/actions/runs/42118655208): Linux completo 83 aprovados; núcleo/TUI Ubuntu e macOS, cada um com 61 aprovados e 22 integrações ignoradas. Os resultados das alterações desta rechecagem devem ser associados ao novo commit, sem reutilizar essa execução como prova das mudanças posteriores.
+
+Os resultados de 82/83 testes abaixo são históricos, identificados por rodada; não são somados às contagens da rechecagem.
+
 ## Versão 0.2.0 — fechamento das lacunas
 
 A implementação foi validada nesta instância Linux com Python 3.12.14, Docker Engine 29.9.2, Textual 8.2.8 e HTTPX 0.28.1. Permanecem duas dependências diretas e 15 distribuições runtime em `requirements.lock`.
@@ -31,7 +41,7 @@ A primeira tentativa dos novos testes TUI foi interrompida porque o sandbox de e
 | Alvo | Estado nesta entrega |
 | --- | --- |
 | Linux, núcleo/TUI/Docker/Git | Executado localmente, com modelos controlados. |
-| Núcleo/TUI em macOS | Workflow de runner hospedado configurado; resultado de CI deve ser consultado separadamente. |
+| Núcleo/TUI em macOS | Executado na CI do commit `2ac7593`: 61 aprovados, 22 testes de integração ignorados. A nova rechecagem exige consultar a CI do respectivo commit. |
 | Integração Docker em macOS | Job manual para runner `self-hosted, macOS, kraken-docker`; não executado nesta instância. |
 | WSL2 | Job manual para runner `self-hosted, linux, wsl2`, com verificação do kernel WSL2 real; não executado nesta instância. |
 | Modelo real | Preferência OpenAI informada. Modelo, credencial e orçamento ainda não definidos; não executado. |

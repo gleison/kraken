@@ -206,6 +206,19 @@ class Store:
         return {row['key']: json.loads(row['value']) for row in rows
                 if json.loads(row['value']).get('status') != 'completed'}
 
+    def task_evidence(self, task, limit=100, *, summary=False):
+        """Read records independently of the bounded event log, newest first."""
+        require(type(limit) is int and 1 <= limit <= 100, 'Limite de evidências inválido')
+        columns = 'id,task,attempt,version,kind,passed' if summary else '*'
+        return [dict(row) if summary else dict(row) | {'data': json.loads(row['data'])}
+                for row in self.db.execute(
+                    f'SELECT {columns} FROM evidence WHERE task=? ORDER BY rowid DESC LIMIT ?', (task, limit))]
+
+    def evidence_record(self, identity):
+        row = self.db.execute('SELECT * FROM evidence WHERE id=?', (identity,)).fetchone()
+        require(row is not None, 'Evidência não encontrada')
+        return dict(row) | {'data': json.loads(row['data'])}
+
     def verify_proofs(self, journal, task):
         require(journal.get('config') == (self.get('approved') or {}).get('config'),
                 'Configuração da evidência mudou; revalidar candidato antes de recuperar')

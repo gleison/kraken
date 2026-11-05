@@ -1,6 +1,6 @@
 # Backlog proposto da refatoração
 
-Status: detalhamento aprovado pelo usuário. Retomada: as lacunas de K-03, K-06, K-07, K-08, K-09, K-11 e K-16 receberam implementação e testes específicos. A suíte Linux tem 82 testes aprovados, sem skips. A auditoria de escopo e a matriz externa em K-17 continuam distinguindo implementação de validação com modelo real e plataformas adicionais. O aceite completo de K-18 depende dessa matriz. A implementação segue as dependências e os gates abaixo; a aprovação não autoriza chamadas reais a provedores, tarefas reais do usuário, push ou publicação implícitos.
+Status: detalhamento aprovado pelo usuário. As lacunas iniciais e as encontradas na [rechecagem requisito por requisito](requirements-audit.md) receberam implementação e testes específicos. As contagens e execuções atuais estão em [validation.md](validation.md). A auditoria de escopo e a matriz externa em K-17 continuam distinguindo implementação de validação com modelo real e plataformas adicionais. O aceite completo de K-18 depende dessa matriz. A implementação segue as dependências e os gates abaixo; a aprovação não autoriza chamadas reais a provedores, tarefas reais do usuário, push ou publicação implícitos.
 
 Os critérios de cada tarefa abaixo são rastreados pela auditoria e pelos testes correspondentes. Papéis descrevem responsabilidades; os testes com modelos controlados não são apresentados como revisores reais do código.
 
@@ -143,7 +143,7 @@ O “Backend” neste backlog implementa o núcleo Python; “Frontend” implem
 
 ### [ ] K-17 — Validação autorizada de provedores e plataformas
 
-- Estado: testes controlados concluídos em Linux; provedor real, macOS e WSL2 não executados. OpenAI é a preferência indicada pelo usuário; modelo, credencial e limite de gasto ainda não foram definidos para essa validação.
+- Estado: testes controlados completos em Linux e núcleo/TUI em macOS concluídos; provedor real, integração Docker no macOS e WSL2 não executados. OpenAI é a preferência indicada pelo usuário; modelo, credencial e limite de gasto ainda não foram definidos para essa validação.
 
 - Dependências: K-06, K-09, K-10, K-11, K-16.
 - Papéis: Plataforma/Harness, QA e Revisão.

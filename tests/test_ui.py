@@ -51,6 +51,32 @@ class UITests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(self.session.store.get('approved')['revision'], p.revision)
             self.assertEqual(self.session.store.get('calls'), 0)
 
+    async def test_dependencies_and_persisted_evidence_remain_inspectable_without_events(self):
+        from dataclasses import replace
+        from textual.widgets import RichLog, TabbedContent
+        p = plan()
+        second = replace(plan('TASK-2', 'second.txt').tasks[0], depends_on=('TASK-1',))
+        self.session.save_plan(replace(p, tasks=(*p.tasks, second)))
+        identity = self.session.store.evidence('TASK-2', 1, 'commit-fixture', 'qa', False,
+                                              {'feedback': 'Actual persisted finding'})
+        with self.session.store.db:
+            self.session.store.db.execute('DELETE FROM events')
+        app = KrakenApp(self.session)
+        async with app.run_test(size=(100, 30)) as pilot:
+            app.query_one(TabbedContent).active = 'tasks-tab'
+            await pilot.pause()
+            table = app.query_one('#tasks', DataTable)
+            self.assertEqual(table.get_row('TASK-2')[1], 'TASK-1')
+            table.move_cursor(row=1)
+            await pilot.click('#inspect-evidence')
+            await pilot.pause()
+            self.assertEqual(app.screen.records[0]['id'], identity)
+            self.assertTrue(app.screen.query_one('#evidence-records', RichLog).lines)
+            await pilot.resize_terminal(50, 20)
+            await pilot.pause()
+            await pilot.click('#evidence-close')
+            self.assertEqual(self.session.store.get('calls'), 0)
+
     async def test_project_manager_lists_sessions_and_returns_selection_without_running(self):
         from kraken.projects import Catalog
         from kraken.ui import ProjectLauncher

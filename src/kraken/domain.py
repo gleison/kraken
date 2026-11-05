@@ -18,6 +18,14 @@ class DecisionRequired(KrakenError):
     """The approved contract cannot resolve this decision autonomously."""
 
 
+class VerificationFailed(KrakenError):
+    """A correction contract tied to the independently observed failure."""
+
+    def __init__(self, feedback):
+        self.feedback = feedback
+        super().__init__(canonical(feedback))
+
+
 def canonical(value) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'), allow_nan=False)
 
@@ -148,6 +156,10 @@ class Task:
         path = safe_path(path)
         return any(path == p or path.startswith(p.rstrip('/') + '/') for p in self.allowed_paths)
 
+    def overlaps(self, other) -> bool:
+        return any(self.permits(path) for path in other.allowed_paths) or any(
+            other.permits(path) for path in self.allowed_paths)
+
 
 @dataclass(frozen=True)
 class Plan:
@@ -193,6 +205,10 @@ class Plan:
             visit(key)
 
     @property
+    def team(self):
+        return tuple(sorted({'product', 'orchestrator', 'qa', 'reviewer'} | {t.role for t in self.tasks}))
+
+    @property
     def revision(self):
         return digest(self.to_dict())
 
@@ -224,6 +240,7 @@ class Plan:
         lines = [f'# Plano — {self.revision[:12]}', '', self.objective,
                  '', '## Escopo', self.scope, '', '## Exclusões', self.exclusions,
                  '', '## Decisões', *[f'- {d}' for d in self.decisions],
+                 '', '## Time', ', '.join(self.team),
                  '', '## Limites', '```json', json.dumps(asdict(self.limits), indent=2), '```',
                  '', 'Custo monetário: indisponível. Aprovação por contadores: ' +
                  ('sim' if self.limits.counter_only else 'NÃO'), '', '## Ambiente',

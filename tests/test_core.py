@@ -25,6 +25,8 @@ class CoreTests(unittest.TestCase):
     def test_plan_roundtrip_stable_revision(self):
         p = plan()
         self.assertEqual(p.revision, Plan.from_dict(p.to_dict()).revision)
+        self.assertEqual(set(p.team), {'product', 'orchestrator', 'backend', 'qa', 'reviewer'})
+        self.assertIn('## Time', p.render())
 
     def test_dependency_cycle_and_unknown_dependency_rejected(self):
         p = plan()
@@ -39,6 +41,9 @@ class CoreTests(unittest.TestCase):
                 replace(p.tasks[0], allowed_paths=(path,))
         with self.assertRaises(KrakenError):
             replace(p.tasks[0], checks=())
+        directory = replace(p.tasks[0], allowed_paths=('src/api',))
+        self.assertTrue(directory.overlaps(replace(p.tasks[0], allowed_paths=('src/api/handler.py',))))
+        self.assertFalse(directory.overlaps(replace(p.tasks[0], allowed_paths=('src/api2',))))
 
     def test_fixture_cannot_be_edited(self):
         p = plan()
