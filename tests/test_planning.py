@@ -15,7 +15,7 @@ from helpers import plan, project
 class PlanningTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         await project(self.root)
         self.session = Session(self.root)
 

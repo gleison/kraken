@@ -17,7 +17,7 @@ from helpers import FakeModel, approve, plan, project
 class IntegrationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         await project(self.root)
         self.original = await git(self.root, 'rev-parse', 'HEAD')
         self.session = Session(self.root)

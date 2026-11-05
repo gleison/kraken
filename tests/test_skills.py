@@ -11,7 +11,7 @@ from kraken.domain import KrakenError
 class SkillTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         skill = self.root / '.kraken/skills/qa'
         skill.mkdir(parents=True)
         (skill / 'SKILL.md').write_text('Inspect independent evidence without modifying code.')

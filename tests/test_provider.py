@@ -15,7 +15,7 @@ from kraken.store import Store
 class ProviderTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.store = Store(Path(self.tmp.name))
+        self.store = Store(Path(self.tmp.name).resolve())
         self.role = Role('backend', Profile('http://localhost/v1', 'fixture', ''), (), 'fixture', '', 'hash')
 
     async def asyncTearDown(self):

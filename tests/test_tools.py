@@ -10,7 +10,7 @@ from kraken.tools import ProjectReader
 class InspectionTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         self.store = Store(self.root / 'runtime')
         self.reader = ProjectReader(self.root, self.store)
 

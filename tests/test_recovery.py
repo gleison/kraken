@@ -17,7 +17,7 @@ from kraken.session import Session
 class RecoveryTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         await project(self.root)
         self.session = Session(self.root)
         p = approve(self.session)

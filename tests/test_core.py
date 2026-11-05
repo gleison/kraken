@@ -15,7 +15,7 @@ from helpers import plan
 class CoreTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.root = Path(self.tmp.name)
+        self.root = Path(self.tmp.name).resolve()
         self.store = Store(self.root / 'runtime')
 
     def tearDown(self):
