@@ -47,6 +47,8 @@ class PlanningTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(self.session.store.get('approved'))
 
     async def test_plan_reviewer_finding_prevents_approval(self):
+        with (self.root / '.kraken/project.toml').open('a') as file:
+            file.write('\n[planning]\nmax_review_rounds=1\n')
         self.session.save_plan(plan())
         async def complete(role, messages, tools=()):
             return Reply(json.dumps({'passed': role.name != 'qa', 'feedback': 'C1 is ambiguous', 'criteria': list(PLAN_REVIEW_CRITERIA)}), [], None)
@@ -64,6 +66,79 @@ class PlanningTests(unittest.IsolatedAsyncioTestCase):
         self.session.save_plan(changed)
         with self.assertRaises(KrakenError):
             self.session.approve(changed.revision, self.session.config.revision)
+
+
+    async def test_review_repairs_technical_findings_and_rechecks_with_fresh_context(self):
+        original = plan()
+        self.session.save_plan(original)
+        fixed = replace(original, tasks=(replace(original.tasks[0], title='Clarified fixture contract'),))
+        reviews = []
+        async def complete(role, messages, tools=()):
+            payload = json.loads(messages[1]['content'].split('\nReturn')[0])
+            if role.name == 'product':
+                self.assertIn('findings', payload)
+                return Reply(json.dumps({'plan': fixed.to_dict()}), [], None)
+            current = payload['plan']
+            reviews.append((role.name, current))
+            passed = current['tasks'][0]['title'] == fixed.tasks[0].title
+            return Reply(json.dumps({'passed': passed, 'feedback': 'Title needs clarification' if not passed else 'Clear',
+                                     'criteria': list(PLAN_REVIEW_CRITERIA)}), [], None)
+        self.session.client.complete = complete
+        result = await self.session.review()
+        self.assertIn('2 rodada', result)
+        self.assertEqual(len(reviews), 4)
+        self.assertEqual(self.session.plan.revision, fixed.revision)
+        self.assertIsNone(self.session.store.get('approved'))
+        self.session.approve(fixed.revision, self.session.config.revision)
+
+    async def test_review_requests_only_missing_human_decision(self):
+        self.session.save_plan(plan())
+        calls = []
+        async def complete(role, messages, tools=()):
+            calls.append(role.name)
+            return Reply(json.dumps({'passed': False, 'feedback': 'Intent missing',
+                 'criteria': list(PLAN_REVIEW_CRITERIA), 'needs_decision': True,
+                 'question': 'Which behaviour should win?', 'recommendation': 'Keep approved fixture'}), [], None)
+        self.session.client.complete = complete
+        self.assertIn('Which behaviour', await self.session.review())
+        self.assertNotIn('product', calls)
+        self.assertIsNotNone(self.session.store.get('planning_decision'))
+
+    async def test_automatic_repair_cannot_change_scope_or_budget(self):
+        p = plan()
+        self.session.save_plan(p)
+        async def complete(role, messages, tools=()):
+            if role.name == 'product':
+                return Reply(json.dumps({'plan': replace(p, scope='expanded without consent').to_dict()}), [], None)
+            return Reply(json.dumps({'passed': False, 'feedback': 'Fix it', 'criteria': list(PLAN_REVIEW_CRITERIA)}), [], None)
+        self.session.client.complete = complete
+        with self.assertRaisesRegex(KrakenError, 'escopo'):
+            await self.session.review()
+        self.assertEqual(self.session.plan.revision, p.revision)
+
+    async def test_review_round_limit_keeps_plan_unapproved(self):
+        p = plan()
+        self.session.save_plan(p)
+        fixes = 0
+        async def complete(role, messages, tools=()):
+            nonlocal fixes
+            if role.name == 'product':
+                fixes += 1
+                return Reply(json.dumps({'plan': replace(p, tasks=(replace(p.tasks[0], title=f'Clarified {fixes}'),)).to_dict()}), [], None)
+            return Reply(json.dumps({'passed': False, 'feedback': 'Still ambiguous', 'criteria': list(PLAN_REVIEW_CRITERIA)}), [], None)
+        self.session.client.complete = complete
+        self.assertIn('Limite', await self.session.review())
+        self.assertEqual(fixes, 2)
+        self.assertIsNone(self.session.store.get('approved'))
+
+    async def test_unapproved_draft_cannot_raise_planning_api_budget(self):
+        p = replace(plan(), limits=replace(plan().limits, calls=1000))
+        self.session.save_plan(p)
+        self.session.store.set('calls', 100)
+        with self.assertRaisesRegex(KrakenError, 'Limite de chamadas'):
+            await self.session.review()
+        self.assertEqual(self.session.budget.limits.calls, 100)
+        self.assertIsNone(self.session.store.get('approved'))
 
 
 class ArchitectureTests(unittest.TestCase):

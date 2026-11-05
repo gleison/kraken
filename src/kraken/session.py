@@ -2,6 +2,7 @@
 from dataclasses import asdict
 from hashlib import sha256
 import json
+import fcntl
 from pathlib import Path
 
 from .agent import agent, json_object, verdict, verdict_instruction
@@ -12,6 +13,8 @@ from .orchestrator import Orchestrator
 from .provider import Budget, ModelClient
 from .store import Store
 from .tools import ProjectReader
+from .harness import normalize
+from .projects import select, save_draft
 
 PLAN_FORMAT = '''Return only JSON, either {"question":"one decision", "recommendation":"recommended answer"}
 or {"plan": {...}}. Questions may include "memory": {"decisions": {"stable-key":"settled decision"},
@@ -22,7 +25,9 @@ limits (concurrency,calls,active_seconds,command_seconds,attempt_seconds,attempt
 counter_only boolean, max_estimated_cost_usd optional numeric threshold), tasks (list). Each task: id,title,goal,role (backend/frontend/platform), allowed_paths
 (list of explicit relative files/directories, no globs), depends_on (list of task ids), references (list of paths),
 criteria (list of {id,description}), checks (list of {id,argv:list,criteria:list of ids,
-category:behaviour/maintainability/architecture,timing:before_integration/after_integration/health}).
+category:behaviour/maintainability/architecture,timing:before_integration/after_integration/health,
+runner:auto/command/unittest/pytest/junit,report:optional /tmp/file.xml,min_passed:positive integer,
+allow_skipped:false unless explicitly approved,allow_expected_failures:false unless explicitly approved}).
 Every criterion needs an executable check and every task a before_integration behaviour check.
 Ask for missing decisions, approved examples, actual image digest and actual commands; do not invent them.
 Do not set counter_only true unless the user explicitly accepted operation without a monetary ceiling.
@@ -48,21 +53,38 @@ def initialize(root):
 
 
 class Session:
-    def __init__(self, root, *, client=None):
+    def __init__(self, root, *, client=None, session_id=None):
         self.root = Path(root).resolve()
         require(',' not in str(self.root), 'Caminho do projeto não pode conter vírgula')
         require((self.root / '.kraken/project.toml').is_file(), 'Execute kraken init <projeto> primeiro')
         require(not (self.root / '.kraken').is_symlink() and
                 not (self.root / '.kraken/runtime').is_symlink(), 'Metadados não podem ser symlinks')
         self.config = Config(self.root)
-        self.store = Store(self.root / '.kraken/runtime', Redactor(self.config.secrets()))
+        runtime = self.root / '.kraken/runtime'
+        runtime.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self.project_lock = (runtime / '.project.lock').open('a')
+        try:
+            fcntl.flock(self.project_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            self.selection_id, directory = select(self.root, session_id)
+            self.store = Store(directory, Redactor(self.config.secrets()),
+                               session_id=self.selection_id if self.selection_id != 'legacy' else None)
+        except BlockingIOError as exc:
+            self.project_lock.close()
+            raise KrakenError('Já existe uma sessão aberta neste projeto') from exc
+        except BaseException:
+            self.project_lock.close()
+            raise
         self.store.recover()
         self.budget = Budget(self.store)
         self.client = ModelClient(self.store, self.budget, client=client)
         self.orchestrator = None
 
     def close(self):
-        self.store.close()
+        try:
+            save_draft(self.root, self.selection_id)
+        finally:
+            self.store.close()
+            self.project_lock.close()
 
     @property
     def plan(self):
@@ -113,14 +135,17 @@ class Session:
         require(bool(text.strip()), 'Escreva a decisão ou intenção')
         self.config = Config(self.root)
         self.store.redactor = Redactor(self.config.secrets())
-        self.budget.limits = self.plan.limits if self.plan else Limits()
+        self.budget.limits = self.config.planning_limits
+        self.config.validate_environment({'product'})
         self.store.emit('planning_started')
         prior = self.store.get('interview', [])
         clean = self.store.redactor.text(text)
         prompt = canonical({'project': await self.context(), 'history': prior[-20:], 'durable_memory': self.store.get('planning_memory', {}),
                             'current_plan': self.plan.to_dict() if self.plan else None,
+                            'review_findings': self.store.plan_reviews(self.plan, self.config.revision) if self.plan else {},
+                            'pending_decision': self.store.get('planning_decision'),
                             'user_message': clean, 'available_roles': list(self.config._roles),
-                            'default_limits': asdict(Limits())}) + '\n' + PLAN_FORMAT
+                            'default_limits': asdict(Limits()), 'planning_budget': asdict(self.config.planning_limits)}) + '\n' + PLAN_FORMAT
         response = json_object(await agent(self.client, self.config.role('product'), prompt,
                                           ProjectReader(self.root, self.store)))
         memory = response.pop('memory', None)
@@ -155,19 +180,63 @@ class Session:
         plan = self.plan
         require(plan is not None, 'Gere ou importe um plano primeiro')
         self.config = Config(self.root)
-        self.budget.limits = plan.limits
+        self.budget.limits = self.config.planning_limits
         self.store.save_plan(plan)
         self.store.redactor = Redactor(self.config.secrets())
-        for task in plan.tasks:
-            self.config.role(task.role)
+        self.config.validate_environment({'product', 'qa', 'reviewer'})
         context = await self.context()
-        for name in ('qa', 'reviewer'):
-            prompt = canonical({'plan': plan.to_dict(), 'project_references': context,
-                                'configuration': self.config.snapshot()}) + '\n' + verdict_instruction(PLAN_REVIEW_CRITERIA)
-            result = verdict(await agent(self.client, self.config.role(name), prompt,
-                                                ProjectReader(self.root, self.store)), PLAN_REVIEW_CRITERIA)
-            self.store.review(plan, self.config.revision, name, result)
-        return 'Revisões registradas; consulte os achados antes de aprovar.'
+        self.store.set('planning_decision', None)
+        for round_number in range(1, self.config.planning_rounds + 1):
+            for task in plan.tasks:
+                self.config.role(task.role)
+            self.store.emit('plan_review_round', number=round_number, revision=plan.revision)
+            findings = {}
+            for name in ('qa', 'reviewer'):
+                prompt = canonical({'plan': plan.to_dict(), 'project_references': context,
+                                    'configuration': self.config.snapshot()}) + '\n' + verdict_instruction(PLAN_REVIEW_CRITERIA)
+                prompt += (' If intent is missing, include needs_decision=true, question and recommendation. '
+                           'Do not ask the human for facts you can inspect in the project.')
+                result = verdict(await agent(self.client, self.config.role(name), prompt,
+                                            ProjectReader(self.root, self.store)), PLAN_REVIEW_CRITERIA)
+                require(self.plan.revision == plan.revision and Config(self.root).revision == self.config.revision,
+                        'Plano/configuração mudou durante a revisão; nada será sobrescrito')
+                self.store.review(plan, self.config.revision, name, result)
+                findings[name] = result
+            if all(v['passed'] for v in findings.values()):
+                return f'Plano {plan.revision[:12]} revisado em {round_number} rodada(s). A aprovação humana continua obrigatória.'
+            decisions = [v for v in findings.values() if v.get('needs_decision') is True]
+            if decisions:
+                decision = decisions[0]
+                require(isinstance(decision.get('question'), str) and decision['question'].strip()
+                        and isinstance(decision.get('recommendation'), str), 'Decisão sem pergunta/recomendação')
+                self.store.set('planning_decision', decision)
+                self.store.emit('planning_decision_required', decision=decision)
+                return decision['question'] + '\nRecomendação: ' + decision['recommendation']
+            if round_number == self.config.planning_rounds:
+                break
+            locked = ('objective', 'scope', 'exclusions', 'decisions', 'image', 'fixtures', 'limits')
+            prompt = canonical({'plan': plan.to_dict(), 'findings': findings, 'references': context,
+                                'locked_fields': locked}) + '\n' + PLAN_FORMAT
+            prompt += (' Correct technical deficiencies only. Preserve locked fields exactly. '
+                       'Return a question if a correction requires new intent, scope, permissions or limits.')
+            response = json_object(await agent(self.client, self.config.role('product'), prompt,
+                                              ProjectReader(self.root, self.store)))
+            require(self.plan.revision == plan.revision, 'O plano foi editado durante a correção')
+            if set(response) == {'question', 'recommendation'}:
+                require(all(isinstance(v, str) and v.strip() for v in response.values()), 'Decisão inválida')
+                self.store.set('planning_decision', response)
+                self.store.emit('planning_decision_required', decision=response)
+                return response['question'] + '\nRecomendação: ' + response['recommendation']
+            require(set(response) == {'plan'}, 'Correção precisa retornar plano ou uma decisão')
+            repaired = Plan.from_dict(response['plan'])
+            require(all(canonical(plan.to_dict()[key]) == canonical(repaired.to_dict()[key]) for key in locked),
+                    'Correção alteraria decisões/escopo/limites; exige decisão do usuário')
+            require(repaired.revision != plan.revision, 'Correção não modificou o plano reprovado')
+            self.save_plan(repaired)
+            self.store.emit('plan_corrected', previous=plan.revision, revision=repaired.revision, findings=findings)
+            plan = repaired
+        self.store.emit('plan_review_exhausted', revision=plan.revision, rounds=self.config.planning_rounds)
+        return 'Limite de revisão/correção atingido. Plano permanece sem aprovação; consulte os achados.'
 
     def approve(self, revision, config_revision):
         plan = self.plan
@@ -224,10 +293,12 @@ class Session:
         version = await git(workspace, 'rev-parse', 'HEAD')
         all_passed = True
         for task, check in checks:
-            result = await executor.run(workspace, check.argv, readonly=True, fixtures=plan.fixtures)
-            self.store.evidence(task.id, 0, version, 'health', result.code == 0,
-                                {'check': asdict(check), 'result': asdict(result)})
-            all_passed &= result.code == 0
+            result = await executor.run(workspace, check.argv, readonly=True, fixtures=plan.fixtures,
+                                        capture_paths=(check.report,) if check.report else ())
+            outcome = normalize(check, result)
+            self.store.evidence(task.id, 0, version, 'health', outcome.ok,
+                                {'check': asdict(check), 'result': asdict(result), 'outcome': asdict(outcome)})
+            all_passed &= outcome.ok
         require(all_passed, 'Há sensores de saúde reprovados; consulte as evidências')
         return f'{len(checks)} sensores de saúde executados e aprovados.'
 
@@ -235,14 +306,16 @@ class Session:
         require(self.orchestrator is None, 'Encerre a execução antes de reconciliar')
         plan = self.plan
         require(plan is not None, 'Não há plano')
-        self.store.assert_approved(plan, Config(self.root).revision)
+        self.config = Config(self.root)
+        self.store.assert_approved(plan, self.config.revision)
         row = next((r for r in self.store.tasks() if r['id'] == task_id), None)
         require(row and row['status'] == 'blocked', 'Tarefa não está bloqueada')
-        require(row['attempt'] < plan.limits.attempts, 'Limite de tentativas atingido')
         repo = Repository(self.root, self.store)
         publication = self.store.get(f'publication:{plan.revision}:{task_id}:{row["attempt"]}')
-        require(not publication,
-                'Transferência Git iniciada: confira branch, candidato e evidências antes de reconciliar manualmente')
+        if publication:
+            await self.run()
+            return 'Transferência reconciliada com evidências; consulte o estado das tarefas.'
+        require(row['attempt'] < plan.limits.attempts, 'Limite de tentativas atingido')
         await repo.prepare()
         from .process import process
         running = await process(['docker', '--context', self.config.docker_context, 'ps', '-a', '--filter',

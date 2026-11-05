@@ -1,5 +1,6 @@
 """Transactional local state and bounded, sanitized operational events."""
 from contextlib import contextmanager
+from dataclasses import asdict
 import json
 import fcntl
 import os
@@ -13,7 +14,7 @@ from .domain import PLAN_REVIEW_CRITERIA, KrakenError, Plan, canonical, require
 
 
 class Store:
-    def __init__(self, directory: Path, redactor=None):
+    def __init__(self, directory: Path, redactor=None, session_id=None):
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.directory = directory
         require(not (directory / '.lock').is_symlink(), 'Lock não pode ser symlink')
@@ -34,6 +35,8 @@ class Store:
             CREATE TABLE IF NOT EXISTS reviews (
                 revision TEXT, config TEXT, role TEXT, verdict TEXT,
                 PRIMARY KEY(revision,config,role));
+            CREATE TABLE IF NOT EXISTS task_history (revision TEXT, id TEXT, document TEXT, PRIMARY KEY(revision,id));
+            CREATE TABLE IF NOT EXISTS plan_revisions (revision TEXT PRIMARY KEY, document TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS tasks (
                 id TEXT PRIMARY KEY, status TEXT NOT NULL, attempt INTEGER DEFAULT 0,
                 detail TEXT DEFAULT '', candidate TEXT DEFAULT '');
@@ -43,7 +46,7 @@ class Store:
         ''')
         self.db.commit()
         if not self.get('session'):
-            self.set('session', uuid.uuid4().hex[:12])
+            self.set('session', session_id or uuid.uuid4().hex[:12])
             self.set('control', 'idle')
             self.set('calls', 0)
             self.set('active_seconds', 0.0)
@@ -91,12 +94,47 @@ class Store:
         previous = self.get('plan')
         if previous and Plan.from_dict(previous).revision == plan.revision:
             return
+        require(not self.pending_publications(), 'Reconcilie transferências pendentes antes de alterar o plano')
+        old_plan = Plan.from_dict(previous) if previous else None
+        old_rows = {row['id']: row for row in self.tasks()}
+        carry = {}
+        guards = ('decisions', 'exclusions', 'image', 'fixtures', 'glossary')
+        if old_plan and all(canonical(old_plan.to_dict()[k]) == canonical(plan.to_dict()[k]) for k in guards):
+            old_tasks = {t.id: t for t in old_plan.tasks}
+            pending_carry = self.get('reuse', {})
+            for task in plan.tasks:
+                row = old_rows.get(task.id)
+                if not row or task.id not in old_tasks or canonical(asdict(task)) != canonical(asdict(old_tasks[task.id])):
+                    continue
+                if row['status'] == 'reuse_pending' and task.id in pending_carry:
+                    carry[task.id] = pending_carry[task.id]
+                elif row['status'] == 'done':
+                    publication = self.get(f'publication:{old_plan.revision}:{task.id}:{row["attempt"]}', {})
+                    if publication.get('status') == 'completed' and publication.get('commit') and publication.get('base'):
+                        carry[task.id] = {'commit': publication['commit'], 'base': publication['base'],
+                                         'source': str(self.directory / 'workspaces' / old_plan.revision[:12] / 'integration'),
+                                         'attempt': row['attempt'], 'revision': old_plan.revision}
+            changed = True
+            while changed:
+                changed = False
+                for task in plan.tasks:
+                    if task.id in carry and any(dep not in carry for dep in task.depends_on):
+                        del carry[task.id]
+                        changed = True
         with self.transaction():
+            if old_plan:
+                self.db.execute('INSERT OR IGNORE INTO plan_revisions VALUES (?,?)',
+                                (old_plan.revision, canonical(old_plan.to_dict())))
+                self.db.executemany('INSERT OR REPLACE INTO task_history VALUES (?,?,?)',
+                                    [(old_plan.revision, key, canonical(row)) for key, row in old_rows.items()])
             self.db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)', ('plan', canonical(plan.to_dict())))
             self.db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)', ('approved', 'null'))
+            self.db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)', ('reuse', canonical(carry)))
             self.db.execute('DELETE FROM tasks')
-            self.db.executemany('INSERT INTO tasks(id,status) VALUES (?,?)',
-                                [(t.id, 'awaiting_approval') for t in plan.tasks])
+            self.db.executemany('INSERT INTO tasks(id,status,attempt,candidate) VALUES (?,?,?,?)',
+                                [(t.id, 'reuse_pending' if t.id in carry else 'awaiting_approval',
+                                  0, carry.get(t.id, {}).get('commit', '')) for t in plan.tasks])
+            self.db.execute('INSERT OR IGNORE INTO plan_revisions VALUES (?,?)', (plan.revision, canonical(plan.to_dict())))
         self.emit('plan_changed', revision=plan.revision)
 
     def review(self, plan, config, role, verdict):
@@ -110,6 +148,10 @@ class Store:
             self.db.execute('INSERT OR REPLACE INTO reviews VALUES (?,?,?,?)',
                             (plan.revision, config, role, canonical(verdict)))
         self.emit('plan_review', role=role, verdict=verdict, revision=plan.revision)
+
+    def plan_reviews(self, plan, config):
+        return {row['role']: json.loads(row['verdict']) for row in self.db.execute(
+            'SELECT role,verdict FROM reviews WHERE revision=? AND config=?', (plan.revision, config))}
 
     def approve(self, plan, config, *, explicit_user_action=False):
         require(explicit_user_action, 'Aprovação exige ação explícita do usuário')
@@ -158,11 +200,35 @@ class Store:
         self.emit('evidence', id=evidence_id, task=task, version=version, kind=kind, passed=passed, data=data)
         return evidence_id
 
+    def pending_publications(self, revision=None):
+        prefix = f'publication:{revision}:' if revision else 'publication:'
+        rows = self.db.execute('SELECT key,value FROM meta WHERE key LIKE ?', (prefix + '%',))
+        return {row['key']: json.loads(row['value']) for row in rows
+                if json.loads(row['value']).get('status') != 'completed'}
+
+    def verify_proofs(self, journal, task):
+        require(journal.get('config') == (self.get('approved') or {}).get('config'),
+                'Configuração da evidência mudou; revalidar candidato antes de recuperar')
+        ids = journal.get('proofs', [])
+        require(bool(ids), 'Journal legado/sem evidências: reconciliação explícita necessária')
+        records = []
+        for identity in ids:
+            row = self.db.execute('SELECT * FROM evidence WHERE id=?', (identity,)).fetchone()
+            require(row and row['passed'] == 1 and row['version'] == journal['commit'],
+                    'Evidência ausente, reprovada ou de outra versão')
+            records.append(dict(row))
+        current = [r for r in records if r['task'] == task.id]
+        require({'qa', 'reviewer', 'computational'} <= {r['kind'] for r in current}, 'Avaliações independentes ausentes')
+        checks = {json.loads(r['data']).get('check', {}).get('id') for r in current if r['kind'] == 'computational'}
+        require({c.id for c in task.checks if c.timing != 'health'} <= checks, 'Checks obrigatórios ausentes')
+
     def recover(self):
-        # An interrupted attempt is not automatically retried: effects may be uncertain.
+        interrupted = self.get('interrupted', [])
+        rows = self.db.execute("SELECT id FROM tasks WHERE status IN ('running','validating','integrating')").fetchall()
+        self.set('interrupted', sorted(set(interrupted) | {row['id'] for row in rows}))
         with self.db:
             self.db.execute("UPDATE tasks SET status='blocked',detail='Interrompida: reconciliar antes de repetir' "
                             "WHERE status IN ('running','validating','integrating')")
-        if self.get('control') in {'running', 'pausing', 'cancelling'}:
+        if self.get('control') in {'running', 'pausing', 'cancelling', 'recovery_required'}:
             self.set('control', 'paused')
-            self.emit('recovery_required', reason='Tentativas interrompidas permanecem bloqueadas')
+            self.emit('recovery_required', reason='Tentativas interrompidas aguardam reconciliação')

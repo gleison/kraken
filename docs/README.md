@@ -1,6 +1,6 @@
 # Refatoração do Kraken
 
-Status: base do MVP e detalhamento aprovados em conversa. Implementação autorizada conforme as dependências e os gates do backlog. K-01–K-16 têm implementação inicial e validação controlada. K-17 e o aceite final continuam pendentes de provedor real e plataformas adicionais.
+Status: base do MVP e detalhamento aprovados em conversa. Implementação autorizada conforme as dependências e os gates do backlog. K-01–K-16 incluem o fechamento das lacunas e testes específicos na versão 0.2.0. K-17 e o aceite final continuam pendentes de provedor real e plataformas adicionais.
 
 - [Especificação do MVP](spec.md): requisitos, contratos, critérios de aceitação e lacunas.
 - [Arquitetura proposta](architecture.md): componentes, persistência, fluxo e avaliação de dependências.
@@ -8,6 +8,7 @@ Status: base do MVP e detalhamento aprovados em conversa. Implementação autori
 - [Glossário](../GLOSSARY.md): linguagem compartilhada.
 - [Harness baseado no artigo fornecido](harness.md): princípios, mecanismos e limites.
 - [Uso e contratos](usage.md): formato do plano e recuperação.
+- [Auditoria de fechamento de escopo](scope-audit.md): lacunas identificadas e seus testes.
 - [Validação](validation.md): testes executados e o que permanece não verificado.
 - [Decisões técnicas e evidências de K-01](technical-decisions.md): escolhas, experimentos e resolução da referência pelo PDF.
 

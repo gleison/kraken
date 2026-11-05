@@ -2,7 +2,7 @@
 
 Orquestrador de desenvolvimento pelo terminal, com TUI em Textual e núcleo Python. Planeja com o usuário, revisa os contratos com contexto novo e exige aprovação explícita antes de distribuir trabalho a agentes especializados.
 
-A versão `0.1.0` implementa o fluxo inicial e é validada em Linux com modelos controlados, Docker e Git reais em projetos descartáveis. Compatibilidade com provedores reais, macOS e WSL2 ainda exige validação. O runner Bash antigo está preservado como legado; a nova versão não usa Claude Code, Codex CLI ou claude-code-template.
+A versão `0.2.0` implementa o fluxo inicial e é validada em Linux com modelos controlados, Docker e Git reais em projetos descartáveis. Compatibilidade com provedores reais, macOS e WSL2 ainda exige validação. O runner Bash antigo está preservado como legado; a nova versão não usa Claude Code, Codex CLI ou claude-code-template.
 
 ## Instalação
 
@@ -22,7 +22,10 @@ Os comandos abaixo são instruções para uso futuro. Eles não foram executados
 
 ```sh
 kraken init /caminho/do/projeto
-kraken tui /caminho/do/projeto
+kraken tui                          # catálogo de projetos e sessões
+kraken tui /caminho/do/projeto        # abrir diretamente
+kraken sessions /caminho/do/projeto
+kraken new-session /caminho/do/projeto
 kraken status /caminho/do/projeto
 ```
 
@@ -32,7 +35,7 @@ Na TUI:
 
 1. Informe o objetivo e responda às decisões do planejamento. **Enviar à API** pode gerar custo; abrir a TUI não chama modelos automaticamente.
 2. Confira o plano integral, incluindo exclusões, tarefas, dependências, imagem, comandos, time, modelos e limites.
-3. Solicite **Revisar (API)**. QA e revisor avaliam a especificação em contextos novos. Achados impeditivos bloqueiam aprovação.
+3. Solicite **Revisar/corrigir (API)**. QA e revisor avaliam a especificação em contextos novos. Problemas técnicos passam por correção e nova revisão, em rodadas limitadas; decisões reais voltam ao usuário. Achados impeditivos bloqueiam aprovação.
 4. Use **Aprovar plano** e confirme a revisão apresentada. Alterar plano, configuração ou skills invalida a autorização anterior.
 5. **Executar/retomar** inicia as tarefas elegíveis. Acompanhe tarefas, agentes, comandos, evidências e consumo. Pausar/cancelar são controles separados.
 
@@ -83,7 +86,7 @@ Precedência: defaults internos, tabela `[provider]`, variáveis globais `OPENAI
 
 Papéis disponíveis: `product`, `orchestrator`, `backend`, `frontend`, `platform`, `qa`, `reviewer`, `security` e `ux`. O planejamento seleciona os executores necessários; QA e revisão permanecem separados da implementação. Perfis adicionais podem ser declarados em `[roles.nome]`, com `tools`, `skill` e tabela `provider` opcionais.
 
-Skills próprias do projeto ficam em `.kraken/skills/<nome>/SKILL.md` e são selecionadas por `skill = "nome"`. O conteúdo e os perfis entram no snapshot aprovado. Skills fornecem procedimentos, não permissões. A detecção de incompatibilidade é básica; referências a outros runtimes precisam de adaptação e revisão. As skills padrão são procedimentos próprios do Kraken, informados pelas [referências da arquitetura](docs/architecture.md).
+Skills próprias do projeto ficam em `.kraken/skills/<nome>/SKILL.md` e são selecionadas por `skill = "nome"`. O conteúdo e os perfis entram no snapshot aprovado. Skills fornecem procedimentos, não permissões. Um manifesto `skill.toml` declara origem/versão/licença e requisitos de runtime, ferramentas, executáveis e variáveis. Requisitos desconhecidos, runtime externo, rede ou ferramentas não autorizadas bloqueiam uso. Executáveis declarados são verificados na imagem; valores de variáveis nunca entram no snapshot. Skills sem manifesto têm origem local e hash explícitos, sem certificação semântica automática. As skills padrão são procedimentos próprios do Kraken, informados pelas [referências da arquitetura](docs/architecture.md).
 
 ```text
 .kraken/
@@ -91,7 +94,7 @@ Skills próprias do projeto ficam em `.kraken/skills/<nome>/SKILL.md` e são sel
   plan.json          fonte estruturada do plano e das tarefas
   plan.md            visualização derivada; editar esta cópia não altera contratos
   skills/            procedimentos locais opcionais
-  runtime/           SQLite, eventos, evidências e workspaces; não versionar
+  runtime/           seletor e dados separados por sessão; não versionar
 ```
 
 O plano inclui fixtures opcionais aprovadas por hash. Agentes não podem alterá-las. Checks têm categoria `behaviour`, `maintainability` ou `architecture` e momento `before_integration`, `after_integration` ou `health`. Veja o [contrato e os exemplos](docs/usage.md).
@@ -102,9 +105,11 @@ Defaults: concorrência 2, 100 chamadas por sessão, 30 minutos de tempo acumula
 
 Sem preços/uso suficientes, o custo é indicado como indisponível. A aprovação exige `counter_only = true`: consentimento explícito para limites verificáveis sem teto financeiro garantido. Com preços configurados, o sistema pode estimar custo e aplicar `max_estimated_cost_usd` ao despacho com reservas concorrentes. A reserva usa uma aproximação conservadora do input, não um tokenizer universal; cobrança real, chamadas em voo e uso ausente podem divergir. Não há garantia de teto financeiro rígido.
 
-Pausar impede novos despachos e aguarda o trabalho em voo. Cancelar solicita interrupção e limpeza de containers próprios; chamadas já enviadas podem gerar custo. Retomar preserva tarefas concluídas da mesma revisão. Tentativas interrompidas ficam bloqueadas até reconciliação explícita. A TUI permite nova tentativa quando os efeitos estão restritos ao workspace isolado e não há containers pendentes; transferência Git incerta exige inspeção manual, sem repetição cega.
+Pausar impede novos despachos e aguarda o trabalho em voo. Cancelar solicita interrupção e limpeza de containers próprios; chamadas já enviadas podem gerar custo. Retomar preserva tarefas concluídas da mesma revisão. Tentativas interrompidas ficam bloqueadas até reconciliação explícita. A retomada remove containers órfãos pertencentes à sessão e reconcilia o journal Git usando commits, refs e evidências. Transferências verificáveis são concluídas sem repetir implementação ou chamadas de modelo; divergências, evidências inválidas e journals legados incompletos bloqueiam o avanço para decisão explícita.
 
-Uma nova revisão do plano cria outro namespace de trabalho/branch e exige revisão e aprovação integrais. Resultados anteriores ficam preservados; o MVP não reaproveita automaticamente tarefas entre revisões. Para alterar uma base já entregue, o usuário deve escolher conscientemente o commit/branch de partida.
+Uma nova revisão exige aprovação explícita. Contratos alterados e seus dependentes são invalidados; resultados inalterados podem ser reaproveitados depois de checks e revisão independentes no novo candidato. Nenhum resultado é simplesmente marcado como concluído por pertencer a uma revisão anterior. Histórico e branches anteriores ficam preservados.
+
+O orçamento da entrevista e das revisões vem de `[planning.limits]`, com os mesmos campos de limites, e não pode ser ampliado por um plano ainda não aprovado. `[planning] max_review_rounds = 3` limita o ciclo de revisão/correção. A execução usa os limites do plano aprovado.
 
 ## Desenvolvimento e testes
 
@@ -118,15 +123,16 @@ Testes de integração Docker são opt-in e usam exclusivamente projetos tempor�
 
 ```sh
 docker --context default pull busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
-KRAKEN_TEST_DOCKER=1 .venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python scripts/run_tests.py --require-docker --report /tmp/kraken-results.json
 ```
 
-Sem essa variável, os testes Docker são **ignorados**, não aprovados. Nenhum teste chama modelo remoto. [Experimentos iniciais](experiments/README.md) são separados dos testes do produto. Veja o [relatório de validação](docs/validation.md) e o [mapeamento do artigo de Harness Engineering](docs/harness.md).
+Sem essa variável, os testes Docker são **ignorados**, não aprovados. Nenhum teste chama modelo remoto. [Experimentos iniciais](experiments/README.md) são separados dos testes do produto. O runner JSON registra cada resultado, incluindo skips e expected failures. Veja a [auditoria de escopo](docs/scope-audit.md), o [relatório de validação](docs/validation.md) e o [mapeamento do artigo de Harness Engineering](docs/harness.md).
 
 ## Limitações da primeira versão
 
 - Execução de comandos sem rede; dependências precisam estar na imagem preparada. Containers não garantem isolamento absoluto.
 - Inspeção e contexto são limitados em tamanho; excesso é diagnosticado, não enviado sem limite ao provedor.
+- Journals da versão antiga sem provas suficientes exigem inspeção; não se infere sucesso de efeitos incertos.
 - Não há importação automática do backlog/template antigo. O backlog anterior pode ser referência para um novo plano revisado.
 - Compatibilidade financeira, semântica de skills e qualidade dos critérios exigem revisão; prompts e sensores não substituem intenção humana clara.
-- Provedor real, macOS/WSL2 e aceite completo do MVP continuam pendentes. Não usar as fixtures como prova de desempenho autônomo com qualquer modelo.
+- A matriz de provedor real, macOS/WSL2 e aceite completo é acompanhada separadamente dos testes locais. Não usar as fixtures como prova de desempenho autônomo com qualquer modelo.

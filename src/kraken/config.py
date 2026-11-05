@@ -1,5 +1,5 @@
 """Configuration contains credential variable names, never credential values."""
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from hashlib import sha256
 from importlib.resources import files
 import json
@@ -9,7 +9,8 @@ import re
 import tomllib
 from urllib.parse import urlsplit
 
-from .domain import KrakenError, digest, identifier, require
+from .domain import KrakenError, Limits, digest, identifier, require
+from .skills import manifest
 
 TOOLS = {'read_file', 'list_files', 'run_command', 'write_file'}
 READ_TOOLS = ('read_file', 'list_files')
@@ -64,10 +65,11 @@ class Role:
     skill_name: str
     skill: str
     skill_hash: str
+    requirements: dict = field(default_factory=dict)
 
     def snapshot(self):
         return {'name': self.name, 'profile': asdict(self.profile) if self.profile else None, 'tools': self.tools,
-                'skill': self.skill_name, 'skill_hash': self.skill_hash}
+                'skill': self.skill_name, 'skill_hash': self.skill_hash, 'requirements': self.requirements}
 
 
 class Config:
@@ -86,6 +88,9 @@ class Config:
             raise KrakenError('Configuração TOML inválida') from exc
         self.docker_context = self.raw.get('execution', {}).get('docker_context', 'default')
         require(re.fullmatch(r'[A-Za-z0-9_.-]+', self.docker_context), 'Contexto Docker inválido')
+        self.planning_limits = Limits(**self.raw.get('planning', {}).get('limits', {}))
+        self.planning_rounds = self.raw.get('planning', {}).get('max_review_rounds', 3)
+        require(type(self.planning_rounds) is int and 1 <= self.planning_rounds <= 10, 'Rodadas de revisão: 1 a 10')
         self._roles = {}
         names = set(ROLES) | set(self.raw.get('roles', {}))
         for name in sorted(names):
@@ -109,15 +114,20 @@ class Config:
                 require(local.resolve().is_relative_to(self.root / '.kraken/skills'),
                         'Skill fora do catálogo local')
                 content = local.read_text()
+                requirements = manifest(local.with_name('skill.toml'), content, 'local:' + skill_name)
             else:
                 bundled = files('kraken').joinpath('skills', skill_name, 'SKILL.md')
                 require(bundled.is_file(), f'Skill não encontrada: {skill_name}')
                 content = bundled.read_text()
+                requirements = manifest(files('kraken').joinpath('skills', skill_name, 'skill.toml'), content, 'builtin:' + skill_name)
             require(len(content) <= 32_000, 'Skill excede limite de contexto')
             require(not re.search(r'\b(?:claude|codex)\s+(?:--|plugin|exec)|Call the Skill tool', content),
                     f'Skill {skill_name} depende de um runtime externo; adapte-a antes de usar')
+            require(set(requirements['required_tools']) <= set(tools), f'Skill {skill_name} exige ferramentas não autorizadas')
+            require(not requirements['required_commands'] or 'run_command' in tools,
+                    f'Skill {skill_name} exige comandos sem permissão run_command')
             self._roles[name] = Role(name, profile, tools, skill_name, content,
-                                     sha256(content.encode()).hexdigest())
+                                     sha256(content.encode()).hexdigest(), requirements)
 
     def role(self, name):
         require(name in self._roles, f'Papel não configurado: {name}')
@@ -126,11 +136,17 @@ class Config:
         return role
 
     def snapshot(self):
-        return {'docker_context': self.docker_context, 'roles': {name: role.snapshot() for name, role in self._roles.items()}}
+        return {'docker_context': self.docker_context, 'planning_rounds': self.planning_rounds, 'planning_limits': asdict(self.planning_limits), 'roles': {name: role.snapshot() for name, role in self._roles.items()}}
 
     @property
     def revision(self):
         return digest(self.snapshot())
+
+    def validate_environment(self, names):
+        for name in names:
+            role = self.role(name)
+            for variable in role.requirements.get('required_variables', []):
+                require(bool(os.environ.get(variable)), f'Skill {role.skill_name}: variável necessária ausente: {variable}')
 
     def secrets(self):
         return [os.environ.get(role.profile.api_key_env, '') for role in self._roles.values()

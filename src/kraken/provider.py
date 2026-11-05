@@ -35,7 +35,7 @@ class Budget:
         ceiling = self.limits.max_estimated_cost_usd
         require(ceiling is None or self.store.get('estimated_cost_usd', 0.0) < ceiling,
                 'Limite de custo estimado atingido')
-        require(self.store.get('control') != 'cancelling', 'Cancelamento solicitado')
+        require(self.store.get('control') not in {'cancelling', 'recovery_required'}, 'Cancelamento/recuperação solicitada')
 
     def reserve(self, estimate=0.0):
         self.check()

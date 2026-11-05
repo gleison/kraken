@@ -106,15 +106,81 @@ class Repository:
             require(result.code == 0, 'Conflito na integração; candidato preservado para reconciliação')
         return candidate, head
 
-    async def publish_local(self, candidate, expected_base):
+    async def ref(self, repository, name):
+        result = await git(repository, 'rev-parse', '--verify', name, check=False)
+        return result.stdout.strip() if result.code == 0 else None
+
+    async def publish_local(self, candidate, expected_base, *, task=None, attempt=None, proofs=()):
         await self.clean_source()
         require(await git(self.integration, 'rev-parse', 'HEAD') == expected_base,
                 'Base de integração mudou durante a avaliação')
+        require(await self.inspect() == self.store.get('base'), 'HEAD original mudou; revisar antes de integrar')
         commit = await git(candidate, 'rev-parse', 'HEAD')
-        await git(self.integration, 'fetch', '--no-tags', str(candidate), commit)
-        await git(self.integration, 'merge', '--ff-only', commit)
-        # Local object/ref transfer only. Does not checkout or merge into the user's branch.
-        await git(self.root, 'fetch', '--no-tags', str(self.integration),
-                  f'HEAD:refs/heads/{self.branch}')
-        self.store.emit('integrated', branch=self.branch, commit=commit)
-        return commit
+        require(not await git(candidate, 'status', '--porcelain=v1'), 'Candidato contém alterações não avaliadas')
+        current_branch = await git(self.root, 'symbolic-ref', '--quiet', 'HEAD', check=False)
+        require(current_branch.stdout.strip() != 'refs/heads/' + self.branch,
+                'A branch de destino está em edição pelo usuário')
+        key = f'publication:{Plan.from_dict(self.store.get("plan")).revision}:{task}:{attempt}'
+        journal = {'status': 'started', 'commit': commit, 'base': expected_base,
+                   'candidate': str(candidate), 'branch': self.branch, 'task': task,
+                   'attempt': attempt, 'proofs': list(proofs), 'origin_head': await self.inspect(), 'config': (self.store.get('approved') or {}).get('config'),
+                   'previous_ref': await self.ref(self.root, 'refs/heads/' + self.branch)}
+        require(task is not None and attempt is not None, 'Publicação local exige tarefa e tentativa')
+        self.store.set(key, journal)
+        return await self.finish_publication(key, journal)
+
+    async def finish_publication(self, key, journal):
+        await self.clean_source()
+        require(journal['branch'] == self.branch, 'Journal aponta para outra branch')
+        require(await self.inspect() == journal.get('origin_head'), 'HEAD do usuário mudou durante a execução')
+        candidate = Path(journal['candidate'])
+        require(candidate.resolve().is_relative_to(self.work.resolve()) and not candidate.is_symlink(),
+                'Candidato fora do workspace aprovado')
+        require(await self.ref(candidate, 'HEAD') == journal['commit'], 'Candidato mudou após validação')
+        require(not await git(candidate, 'status', '--porcelain=v1'), 'Candidato alterado após validação')
+        current_branch = await git(self.root, 'symbolic-ref', '--quiet', 'HEAD', check=False)
+        require(current_branch.stdout.strip() != 'refs/heads/' + self.branch, 'Destino está em edição pelo usuário')
+        head = await self.ref(self.integration, 'HEAD')
+        require(head in {journal['base'], journal['commit']}, 'Integração divergiu; não sobrescrever')
+        exported = await self.ref(self.root, 'refs/heads/' + self.branch)
+        require(exported in {journal.get('previous_ref'), journal['commit']}, 'Ref de destino divergiu; não sobrescrever')
+        if head != journal['commit']:
+            await git(self.integration, 'fetch', '--no-tags', str(candidate), journal['commit'])
+            await git(self.integration, 'merge', '--ff-only', journal['commit'])
+        journal = dict(journal, status='integration_updated')
+        self.store.set(key, journal)
+        if exported != journal['commit']:
+            await git(self.root, 'fetch', '--no-tags', str(self.integration), journal['commit'])
+            await git(self.root, 'update-ref', 'refs/heads/' + self.branch, journal['commit'],
+                      journal.get('previous_ref') or '0' * 40)
+        journal['status'] = 'completed'
+        self.store.set(key, journal)
+        self.store.emit('integrated', branch=self.branch, commit=journal['commit'])
+        return journal['commit']
+
+    async def reconcile(self, plan, revalidate=None):
+        tasks = {task.id: task for task in plan.tasks}
+        async def refresh(key, journal, task):
+            if journal.get('config') != (self.store.get('approved') or {}).get('config'):
+                require(revalidate is not None, 'Configuração mudou; execute a retomada para revalidar o candidato')
+                journal['proofs'] = await revalidate(Path(journal['candidate']), task, journal['attempt'],
+                                                     journal['base'], integrated=True)
+                journal['config'] = self.store.get('approved')['config']
+                self.store.set(key, journal)
+            self.store.verify_proofs(journal, task)
+        for key, journal in self.store.pending_publications(plan.revision).items():
+            require(journal.get('task') in tasks and 'commit' in journal,
+                    'Journal incompleto/legado exige inspeção antes de repetir')
+            task = tasks[journal['task']]
+            await refresh(key, journal, task)
+            self.fixtures(Path(journal['candidate']), plan)
+            commit = await self.finish_publication(key, journal)
+            self.store.task(task.id, 'done', 'Transferência recuperada a partir de evidências verificadas', commit)
+        # Crash after the durable completion marker but before the task row update.
+        for row in self.store.tasks():
+            journal = self.store.get(f'publication:{plan.revision}:{row["id"]}:{row["attempt"]}', {})
+            if row['status'] == 'blocked' and journal.get('status') == 'completed':
+                await refresh(f'publication:{plan.revision}:{row["id"]}:{row["attempt"]}', journal, tasks[row['id']])
+                require(await self.ref(self.root, 'refs/heads/' + self.branch) == journal['commit'],
+                        'Ref não corresponde ao resultado concluído')
+                self.store.task(row['id'], 'done', 'Conclusão recuperada sem repetir comandos', journal['commit'])

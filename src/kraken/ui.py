@@ -48,9 +48,10 @@ class KrakenApp(App):
     #activity { height: 1fr; }
     '''
 
-    def __init__(self, session):
+    def __init__(self, session, *, catalog=None):
         super().__init__()
         self.session = session
+        self.catalog = catalog
         self.last_event = 0
         self.busy = False
         self.background = None
@@ -62,12 +63,13 @@ class KrakenApp(App):
         yield Header()
         yield Static('Sem chamadas automáticas. Enviar/revisar usa API e pode gerar custo.', id='summary')
         with Horizontal(id='actions'):
-            yield Button('Revisar (API)', id='review')
+            yield Button('Projetos/sessões', id='manage', disabled=self.catalog is None)
+            yield Button('Revisar/corrigir (API)', id='review')
             yield Button('Aprovar plano', id='approve')
             yield Button('Executar/retomar', id='run', variant='primary')
             yield Button('Pausar', id='pause')
             yield Button('Cancelar', id='cancel', variant='error')
-            yield Button('Reconciliar tarefa', id='retry')
+            yield Button('Reconciliar (API se necessário)', id='retry')
         with TabbedContent():
             with TabPane('Planejamento', id='planning-tab'):
                 yield RichLog(id='conversation', wrap=True, markup=False, max_lines=1000)
@@ -165,7 +167,12 @@ class KrakenApp(App):
 
     def on_button_pressed(self, event: Button.Pressed):
         action = event.button.id
-        if action == 'send':
+        if action == 'manage':
+            if self.busy:
+                self.notify('Pause/encerre a operação antes de trocar de sessão.')
+            elif self.catalog is not None:
+                self.push_screen(ProjectManager(self.catalog, self.session.root), self.switch_project)
+        elif action == 'send':
             field = self.query_one('#message', Input)
             text = field.value
             if not text.strip() or self.busy:
@@ -196,6 +203,10 @@ class KrakenApp(App):
             if table.row_count:
                 task_id = table.get_row_at(table.cursor_row)[0]
                 self.launch(self.session.retry(task_id))
+
+    def switch_project(self, choice):
+        if choice:
+            self.exit(choice)
 
     def approved(self, decision):
         if decision:
@@ -229,3 +240,89 @@ class KrakenApp(App):
             self.session.cancel()
             self.background.cancel()
             await asyncio.gather(self.background, return_exceptions=True)
+
+
+class ProjectManager(ModalScreen):
+    """Selection only. No model, runtime or project task starts from this screen."""
+    CSS = '''
+    ProjectManager { background: $surface; }
+    #project-list { height: 30%; }
+    #session-list { height: 35%; }
+    #manager-actions { height: 3; }
+    '''
+
+    def __init__(self, catalog, current=None):
+        super().__init__()
+        self.catalog, self.current = catalog, current
+
+    def compose(self):
+        yield Static('Projetos e sessões — selecionar não executa tarefas nem chama APIs')
+        yield Input(value=str(self.current or ''), placeholder='Raiz de um projeto Git', id='project-path')
+        yield DataTable(id='project-list', cursor_type='row')
+        yield Static('Sessões preservadas do projeto selecionado')
+        yield DataTable(id='session-list', cursor_type='row')
+        with Horizontal(id='manager-actions'):
+            yield Button('Abrir projeto', id='manager-open')
+            yield Button('Retomar sessão', id='manager-resume')
+            yield Button('Nova sessão', id='manager-new')
+            yield Button('Voltar', id='manager-back')
+
+    def on_mount(self):
+        self.query_one('#project-list', DataTable).add_columns('Projeto', 'Caminho')
+        self.query_one('#session-list', DataTable).add_columns('ID', 'Estado', 'Chamadas', 'Tarefas', 'Objetivo')
+        for index, path in enumerate(self.catalog.projects()):
+            self.query_one('#project-list', DataTable).add_row(path.name, str(path), key=str(index))
+        if self.current:
+            self.show_sessions(self.current)
+
+    def show_sessions(self, root):
+        from .projects import sessions
+        table = self.query_one('#session-list', DataTable)
+        table.clear()
+        for row in sessions(root):
+            table.add_row(row['id'], row['status'] or 'idle', str(row['calls']),
+                          canonical(row['tasks']), row['objective'], key=row['id'])
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted):
+        if event.data_table.id == 'project-list':
+            root = event.data_table.get_row(event.row_key)[1]
+            self.query_one('#project-path', Input).value = root
+            self.show_sessions(root)
+
+    async def on_button_pressed(self, event: Button.Pressed):
+        event.stop()
+        action = event.button.id
+        if action == 'manager-back':
+            self.dismiss(None)
+            return
+        if action not in {'manager-open', 'manager-new', 'manager-resume'}:
+            return
+        from pathlib import Path
+        from .projects import init_project
+        root = Path(self.query_one('#project-path', Input).value).expanduser().resolve()
+        try:
+            await init_project(root)
+            self.catalog.add(root)
+            selected = None
+            if action == 'manager-new':
+                selected = 'new'
+            elif action == 'manager-resume':
+                table = self.query_one('#session-list', DataTable)
+                if not table.row_count:
+                    raise KrakenError('Selecione um projeto com sessão existente')
+                selected = table.get_row_at(table.cursor_row)[0]
+            self.dismiss((str(root), selected))
+        except (KrakenError, OSError) as exc:
+            self.notify(str(exc), severity='error')
+
+
+class ProjectLauncher(App):
+    TITLE = 'Kraken — Projetos e sessões'
+    BINDINGS = [('q', 'quit', 'Sair')]
+
+    def __init__(self, catalog):
+        super().__init__()
+        self.catalog = catalog
+
+    def on_mount(self):
+        self.push_screen(ProjectManager(self.catalog), self.exit)

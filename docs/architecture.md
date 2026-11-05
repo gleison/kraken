@@ -131,3 +131,18 @@ A implementação inicial usa Python >=3.12, wheel/venv, Textual 8.2.8 e HTTPX 0
 - [Harness Engineering](https://martinfowler.com/articles/harness-engineering.html): artigo de Birgitta Böckeler analisado a partir do PDF fornecido pelo usuário. Fonte e mapeamento registrados em [harness.md](harness.md).
 
 URLs apontam para fontes móveis. Na implementação das skills, fixar revisão, registrar origem e conferir a licença. A pesquisa orienta esta proposta; não constitui certificação de compatibilidade com essas implementações.
+
+
+## Refinamentos da versão 0.2.0
+
+O planejador corrige deficiências técnicas em rodadas limitadas, com revisores independentes em cada revisão. Não altera automaticamente campos de intenção, escopo, exclusões, decisões, imagem, fixtures ou limites. Decisões humanas e esgotamento de rodadas ficam explícitos; aprovação nunca é inferida.
+
+Revisões guardam histórico de tarefas. Contratos inalterados e dependências ainda válidas podem ser candidatos a reuse, sempre reavaliados no novo plano aprovado antes de satisfazer dependências. Mudanças de decisões, exclusões, imagem, fixtures ou glossário invalidam conservadoramente o reuse. Resultados anteriores e suas branches permanecem preservados.
+
+Transferência Git usa journal com commit/base/ref anterior, contexto aprovado e evidências. Atualização da ref usa compare-and-swap. Recuperação só completa fases conhecidas; divergências não são forçadas. Se modelos/skills mudaram e o plano foi novamente aprovado, o candidato exige novas avaliações. Uma transferência pendente não pode ser ocultada por replanejamento.
+
+Os resultados computacionais são normalizados por runner/relatório. O arquivo JUnit tem mount de saída exclusivo e sobrevive ao tmpfs do comando. Não se aproveita relatório de outra execução nem resumo inconsistente.
+
+O catálogo fica fora dos projetos; cada projeto tem lock exclusivo e sessões em diretórios estáveis. Mudar de sessão preserva rascunhos e não move journals/workspaces. O layout antigo permanece legível como sessão legada.
+
+Manifestos TOML usam somente a biblioteca padrão e são parte do snapshot de aprovação. Eles declaram requisitos, não concedem permissões. Conteúdo sem origem declarada não ganha atribuição/licença inventadas.

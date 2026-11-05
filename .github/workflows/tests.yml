@@ -1,0 +1,99 @@
+name: Tests
+on:
+  push:
+    branches: [main, 'kraken/**']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      wsl2:
+        description: Run integration on a registered WSL2 self-hosted runner
+        type: boolean
+        default: false
+      macos_docker:
+        description: Run full integration on a registered macOS Docker runner
+        type: boolean
+        default: false
+permissions:
+  contents: read
+jobs:
+  core:
+    name: Core and TUI (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    timeout-minutes: 15
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -c requirements.lock .
+      - run: python scripts/run_tests.py --report test-results.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: core-${{ matrix.os }}
+          path: test-results.json
+  integration:
+    name: Docker and Git integration (Linux)
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -c requirements.lock .
+      - run: docker --context default pull busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+      - run: python scripts/run_tests.py --require-docker --report test-results.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-linux
+          path: test-results.json
+  wsl2:
+    name: WSL2 integration (explicit self-hosted opt-in)
+    if: github.event_name == 'workflow_dispatch' && inputs.wsl2
+    timeout-minutes: 15
+    runs-on: [self-hosted, linux, wsl2]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify actual WSL2 kernel
+        run: python3.12 -c 'import platform; assert "microsoft" in platform.release().lower() and "wsl2" in platform.release().lower(), "Expected WSL2 kernel"'
+      - run: python3.12 -m venv .venv
+      - run: .venv/bin/python -m pip install -c requirements.lock .
+      - run: docker --context default pull busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+      - run: .venv/bin/python scripts/run_tests.py --require-docker --report test-results.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-wsl2
+          path: test-results.json
+
+  macos-docker:
+    name: macOS Docker integration (explicit self-hosted opt-in)
+    if: github.event_name == 'workflow_dispatch' && inputs.macos_docker
+    timeout-minutes: 15
+    runs-on: [self-hosted, macOS, kraken-docker]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - run: python3.12 -c 'import sys; assert sys.platform == "darwin"'
+      - run: python3.12 -m venv .venv
+      - run: .venv/bin/python -m pip install -c requirements.lock .
+      - run: docker --context default pull busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+      - run: .venv/bin/python scripts/run_tests.py --require-docker --report test-results.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: integration-macos
+          path: test-results.json

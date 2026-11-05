@@ -45,7 +45,18 @@ class DockerExecutor:
             require(result.code == 0, 'Docker/imagem indisponível; prepare a imagem por digest antes de executar')
         self.store.emit('container_ready', image=self.image, network='none')
 
-    async def run(self, workspace: Path, argv, *, readonly=False, fixtures=(), input=None):
+    async def cleanup_orphans(self):
+        listing = await process([*self.docker, 'ps', '-aq', '--filter',
+                                 'label=kraken.session=' + self.store.get('session')], timeout=20)
+        require(listing.code == 0, 'Não foi possível reconciliar containers da sessão')
+        import re
+        for identity in listing.stdout.split():
+            require(re.fullmatch(r'[0-9a-f]{12,64}', identity), 'Identidade de container inválida')
+            stopped = await process([*self.docker, 'rm', '-f', identity], timeout=20)
+            require(stopped.code == 0, 'Container da sessão não pôde ser encerrado')
+            self.store.emit('orphan_container_removed', container=identity)
+
+    async def run(self, workspace: Path, argv, *, readonly=False, fixtures=(), input=None, capture_paths=()):
         require(self.policy is not None, 'Executor exige política de aprovação explícita')
         self.policy()
         require(isinstance(argv, (list, tuple)) and argv and
@@ -71,6 +82,17 @@ class DockerExecutor:
                 require(not full.is_symlink() and full.resolve().is_relative_to(workspace.resolve()),
                         'Mount protegido não pode apontar para fora do workspace')
                 args += ['--mount', f'type=bind,src={full.resolve()},dst=/workspace/{path},readonly']
+        reports = {}
+        for index, report in enumerate(capture_paths):
+            require(report.startswith('/tmp/') and '..' not in Path(report).parts,
+                    'Artefato fora de /tmp')
+            directory = self.store.directory / 'artifacts' / name
+            directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+            destination = directory / str(index)
+            destination.touch(mode=0o600, exist_ok=False)
+            reports[report] = destination
+            # A dedicated writable output file survives the container's tmpfs teardown.
+            args += ['--mount', f'type=bind,src={destination.resolve()},dst={report}']
         if input is not None:
             args += ['--interactive']
         args += [self.image, *argv]
@@ -78,6 +100,11 @@ class DockerExecutor:
         started = time.monotonic()
         try:
             result = await process(args, timeout=self.budget.limits.command_seconds, input=input)
+            for report, destination in reports.items():
+                require(not destination.is_symlink() and destination.is_file(), 'Artefato inválido')
+                require(destination.stat().st_size <= 1_000_000, 'Relatório excede limite')
+                if destination.stat().st_size:
+                    result.artifacts[report] = destination.read_text()
             self.store.emit('tool_finished', container=name, **asdict(result))
             return result
         except TimeoutError as exc:

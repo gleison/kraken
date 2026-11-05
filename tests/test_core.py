@@ -152,3 +152,31 @@ class CoreTests(unittest.TestCase):
         (directory / 'project.toml').write_text('provider="not a table"\n')
         with self.assertRaises(KrakenError):
             Config(self.root)
+
+    def test_replan_invalidates_changed_task_and_transitive_dependents_only(self):
+        from dataclasses import asdict
+        first = plan().tasks[0]
+        second = replace(plan('TASK-2', 'second.txt').tasks[0], depends_on=(first.id,))
+        third = plan('TASK-3', 'third.txt').tasks[0]
+        old = replace(plan(), tasks=(first, second, third))
+        self.store.save_plan(old)
+        for task in old.tasks:
+            self.store.task(task.id, 'done', candidate='1' * 40)
+            self.store.set(f'publication:{old.revision}:{task.id}:0',
+                           {'status': 'completed', 'commit': '1' * 40, 'base': '2' * 40})
+        revised = replace(old, tasks=(replace(first, goal='Different intent'), second, third))
+        self.store.save_plan(revised)
+        states = {r['id']: r['status'] for r in self.store.tasks()}
+        self.assertEqual(states['TASK-1'], 'awaiting_approval')
+        self.assertEqual(states['TASK-2'], 'awaiting_approval')
+        self.assertEqual(states['TASK-3'], 'reuse_pending')
+        self.assertIsNone(self.store.get('approved'))
+        self.assertEqual(self.store.db.execute('SELECT COUNT(*) FROM task_history').fetchone()[0], 3)
+
+    def test_pending_publication_cannot_be_hidden_by_replanning(self):
+        p = plan()
+        self.store.save_plan(p)
+        self.store.set(f'publication:{p.revision}:TASK-1:1', {'status': 'started'})
+        with self.assertRaisesRegex(KrakenError, 'transferências pendentes'):
+            self.store.save_plan(replace(p, scope='New scope'))
+        self.assertEqual(self.store.get('plan')['scope'], p.scope)

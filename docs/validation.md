@@ -1,53 +1,56 @@
-# Validação da implementação inicial
+# Validação e aceite
 
-## Ambiente e escopo
+## Versão 0.2.0 — fechamento das lacunas
 
-Validado nesta instância Linux com Python 3.12.14, Docker Engine 29.9.2, Textual 8.2.8 e HTTPX 0.28.1. Duas dependências diretas, 15 distribuições no conjunto runtime fixado em `requirements.lock`.
+A implementação foi validada nesta instância Linux com Python 3.12.14, Docker Engine 29.9.2, Textual 8.2.8 e HTTPX 0.28.1. Permanecem duas dependências diretas e 15 distribuições runtime em `requirements.lock`.
 
-Os testes do produto usam modelos/transportes controlados. Os testes de integração executam comandos reais em containers e operações Git reais, exclusivamente em repositórios temporários. Não chamam modelos remotos nem executam `kraken.sh` ou tarefas deste projeto.
+A rodada completa atual executou **82 testes: 82 aprovados, zero falhas, zero erros e zero skips**, em 34,430 segundos. Relatório JSON local: `/tmp/kraken-scope-results.json`. Os cenários usam modelos controlados; Docker e Git são reais, exclusivamente em projetos descartáveis. Não foi executada tarefa real do usuário nem chamada paga a modelo.
 
-A rodada final executou **46 testes contra o wheel instalado: todos aprovados, zero reprovados e zero ignorados**, em 77,371 segundos. O código importado veio de `/tmp/kraken-installed-venv/lib/python3.12/site-packages/kraken`, não do checkout editável. Os **15 experimentos de K-01** são uma execução separada, não somados para inflar a contagem do produto.
+O mesmo conjunto de **82 testes passou contra o wheel 0.2.0 instalado em venv limpo**, em 37,600 segundos, importando `/tmp/kraken-v02-venv/lib/python3.12/site-packages/kraken`. O wheel inclui os seis manifestos de skills e tem SHA-256 `f534549cb6fd36d312f754f3e1fbfa301bf56c15a33918538efd259347345f49`.
 
-## Evidências por critério
+Os 15 experimentos anteriores e os 46 testes da versão 0.1.0 são históricos, não somados à contagem atual. Um resultado verde de fixtures não certifica a qualidade de um modelo real.
 
-| Critério | Evidência executada | Limite |
-| --- | --- | --- |
-| AC01 — aprovação obrigatória | Aprovação explícita, revisão/configuração obsoletas, arquivo do plano alterado e gate antes de cada comando. | Validação local; aprovação não é assinatura criptográfica contra o próprio usuário. |
-| AC02 — planejamento revisável | Entrevista, geração, revisores sem histórico, achado impeditivo e aprovação por modal. | Respostas dos modelos controladas; qualidade de entrevista com modelo real não medida. |
-| AC03 — adapter | Tool calls intercaladas/fragmentadas, uso, JSON inválido, streaming incompleto, limite de saída e cancelamento sem retry. | Nenhum endpoint remoto foi certificado. |
-| AC04 — paralelismo | Dois trabalhos isolados antes da conclusão do primeiro e dependente iniciado só após ambos concluírem. | Sem benchmark de escala; concorrência limitada. |
-| AC05 — evidências | QA reprovado provoca correção; zero testes conhecido não aprova; regressão de tarefa anterior bloqueia integração. | Revisores controlados; resultados inferenciais reais permanecem probabilísticos. |
-| AC06 — Git | Commits transferidos à branch local do Kraken sem mudar HEAD ou arquivos do checkout original; checkout sujo bloqueia. | Transferência interrompida exige reconciliação; nenhum push foi realizado. |
-| AC07 — isolamento | Rede apenas loopback, filesystem restrito, fixture protegida, sem socket do daemon, capabilities removidas e escrita portátil dentro do workspace. | Testes Linux não provam isolamento absoluto nem suporte em qualquer engine. |
-| AC08 — recuperação | Claim único, recuperação bloqueando efeitos incertos, cancelamento, reconciliação e retomada; pausa permite concluir trabalho em voo sem despachar dependente. | Não existe promessa de exatamente uma execução em serviços externos. |
-| AC09 — limites e segredos | Reserva de chamadas/custo estimado, estimativa por preços configurados, redaction estrutural, configuração inválida, leitura de `.env` e symlink externo rejeitados. | Custo real não garantido; segredos versionados e comandos arbitrários precisam da política do projeto. |
-| AC10 — TUI | Inicialização sem API/aprovação, modal de confirmação e terminal redimensionado; eventos de agentes/tarefas/logs vêm do runtime. | Sem avaliação de usabilidade humana extensa. |
-| AC11 — perfis/skills | Overrides por papel, hash alterado invalidando configuração e skill dependente de runtime externo rejeitada. | Detecção básica não verifica a semântica de toda skill externa. |
-| AC12 — plataformas | Instalação, importação, testes e Docker nesta instância Linux. | macOS e WSL2 não executados. |
+## Evidências das lacunas
 
-O teste estrutural verifica que o núcleo não importa Textual. O exemplo comportamental usa bytes esperados definidos antes da implementação da fixture. Modelos simulados não são apresentados como QA ou revisão reais do código do Kraken.
+| Área | Verificação executada |
+| --- | --- |
+| Revisão/correção do plano | Achado técnico leva a correção e nova revisão; falta de intenção gera pergunta; campos bloqueados não mudam; limite de rodadas mantém plano não aprovado. |
+| Orçamento pré-aprovação | Rascunho com limite maior não amplia o orçamento de planejamento configurado pelo usuário. |
+| Replanejamento | Tarefa válida é revalidada e reaproveitada sem nova implementação; alteração invalida a tarefa e seus dependentes, preservando o independente. |
+| Journal Git | Falhas em quatro fases, retomada sem novas chamadas de modelo, compare-and-swap, divergência recusada, evidência invalidada recusada e configuração nova exigindo novas avaliações. |
+| Harness | unittest, pytest e JUnit; skips/xfails/disabled separados; relatórios ausentes ou contraditórios recusados; captura real de JUnit sem reutilizar arquivo anterior. |
+| Skills | Origem/versão/requisitos no snapshot; runtime, rede e ferramenta incompatíveis recusados; variável ausente diagnosticada por nome; executável inexistente detectado na imagem aprovada. |
+| Projetos/sessões | Seleção e criação pela TUI sem chamadas a API; aprovação, rascunho, consumo e histórico preservados ao retomar; lock impede duas sessões do mesmo projeto. |
 
-## Empacotamento
+Continuam cobertos os testes de streaming, tool calls inválidas, aprovação explícita, alteração de configuração, Docker sem rede, regressão na integração, checkout do usuário preservado, pausa, cancelamento e retomada. A [auditoria](scope-audit.md) relaciona os cenários aos itens do backlog.
 
-Build de wheel e instalação editável foram executados. O artefato final foi construído em `/tmp/kraken-release-final/kraken_orchestrator-0.1.0-py3-none-any.whl`, com SHA-256 `531e218d496d61b6bf467c7c3f524b60e0d70cc1f5457c3c28154bdad068ecd0`.
+A primeira tentativa dos novos testes TUI foi interrompida porque o sandbox de execução bloqueou o socket de despertar do event loop. A mesma suíte terminou com quatro aprovações em 3,823 segundos no executor com sockets locais liberados; a rodada completa usa esse executor. Isso não foi tratado como aprovação da execução interrompida nem contornado por remoção de asserts.
 
-O wheel foi instalado em venv limpo com as versões de `requirements.lock`; após a correção final, apenas o wheel foi reinstalado com dependências preservadas. A suíte final de 46 testes passou nesse ambiente. O arquivo zip do wheel passou na verificação de integridade e contém as seis skills padrão. `kraken --help` funcionou sem abrir TUI nem iniciar API. O teste de cancelamento durante spawn confirma encerramento do processo criado; a rodada final não apresentou o aviso de status de filho já recolhido observado antes da correção.
+## Matriz externa
 
-## Reproduzir os testes do produto
+| Alvo | Estado nesta entrega |
+| --- | --- |
+| Linux, núcleo/TUI/Docker/Git | Executado localmente, com modelos controlados. |
+| Núcleo/TUI em macOS | Workflow de runner hospedado configurado; resultado de CI deve ser consultado separadamente. |
+| Integração Docker em macOS | Job manual para runner `self-hosted, macOS, kraken-docker`; não executado nesta instância. |
+| WSL2 | Job manual para runner `self-hosted, linux, wsl2`, com verificação do kernel WSL2 real; não executado nesta instância. |
+| Modelo real | Preferência OpenAI informada. Modelo, credencial e orçamento ainda não definidos; não executado. |
+
+Workflows configurados não equivalem a resultados executados. Jobs opcionais sem runner não são testes aprovados. O core hospedado não tem Docker e reporta os skips de integração em JSON; o job Linux de integração exige zero skips.
+
+## Reproduzir
 
 ```sh
 python3.12 -m venv /tmp/kraken-tests
 /tmp/kraken-tests/bin/python -m pip install -c requirements.lock .
 docker --context default pull busybox@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
-KRAKEN_TEST_DOCKER=1 /tmp/kraken-tests/bin/python -m unittest discover -s tests -v
+/tmp/kraken-tests/bin/python scripts/run_tests.py --require-docker --report /tmp/test-results.json
 ```
 
-Sem `KRAKEN_TEST_DOCKER=1`, os testes Docker são ignorados. Isso não demonstra prontidão do isolamento nem da integração. Não é necessário configurar API key para a suíte controlada.
+Sem `--require-docker`, os testes Docker são ignorados explicitamente e aparecem no relatório. O runner preserva exit status e resultados individuais.
 
-## O que permanece pendente
+A CI em `.github/workflows/tests.yml` executa core/TUI em Ubuntu e macOS, integração em Ubuntu e disponibiliza jobs manuais para WSL2 e macOS com Docker. Para os jobs manuais, o runner precisa de Python 3.12 e daemon/contexto Docker `default` local, além das labels indicadas. WSL1 ou um Linux comum não satisfazem o gate WSL2.
 
-- K-17: escolher endpoint, modelo e limites para uma validação remota explicitamente autorizada; credencial deve ser fornecida pelo mecanismo seguro do ambiente, nunca pelo chat ou pelos arquivos versionados.
-- K-17: executar a matriz real de macOS e WSL2, incluindo contexto Docker e terminal.
-- K-18: aceite completo após essa matriz, mantendo limites, resultados ignorados e problemas conhecidos separados.
+## Aceite pendente
 
-A implementação local está disponível para revisão; o MVP não é declarado universalmente pronto. Nenhum commit foi feito no checkout do Kraken, nenhum push ou publicação foi realizado. Commits das fixtures existem apenas nos repositórios temporários e são descartados após os testes.
+K-17 e o aceite final de K-18 exigem: configuração e autorização explícita da validação com modelo real, e evidências da matriz de plataformas correspondente. A ausência desses recursos não é descrita como código concluído e validado em todos os ambientes. Não há garantia de teto de faturamento nem de eliminar toda intervenção humana.

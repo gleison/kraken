@@ -1,8 +1,8 @@
 # Backlog proposto da refatoração
 
-Status: detalhamento aprovado pelo usuário. K-01–K-16 têm implementação inicial e testes controlados. K-17 está pendente de validação real; K-18 tem documentação pronta, com aceite final dependente de K-17. A implementação segue as dependências e os gates abaixo; a aprovação não autoriza chamadas reais a provedores, tarefas reais do usuário, push ou publicação implícitos.
+Status: detalhamento aprovado pelo usuário. Retomada: as lacunas de K-03, K-06, K-07, K-08, K-09, K-11 e K-16 receberam implementação e testes específicos. A suíte Linux tem 82 testes aprovados, sem skips. A auditoria de escopo e a matriz externa em K-17 continuam distinguindo implementação de validação com modelo real e plataformas adicionais. O aceite completo de K-18 depende dessa matriz. A implementação segue as dependências e os gates abaixo; a aprovação não autoriza chamadas reais a provedores, tarefas reais do usuário, push ou publicação implícitos.
 
-Cada tarefa abaixo deverá ganhar contrato executável completo no planejamento: limites concretos, modelos, skills, recursos, critérios e evidências. Os papéis são uma proposta de responsabilidade, não processos já existentes.
+Os critérios de cada tarefa abaixo são rastreados pela auditoria e pelos testes correspondentes. Papéis descrevem responsabilidades; os testes com modelos controlados não são apresentados como revisores reais do código.
 
 ## Estratégia de entrega
 
@@ -143,7 +143,7 @@ O “Backend” neste backlog implementa o núcleo Python; “Frontend” implem
 
 ### [ ] K-17 — Validação autorizada de provedores e plataformas
 
-- Estado: testes controlados concluídos em Linux; provedor real, macOS e WSL2 não executados. Não há credencial/modelo/limite de uso remoto definidos para essa validação.
+- Estado: testes controlados concluídos em Linux; provedor real, macOS e WSL2 não executados. OpenAI é a preferência indicada pelo usuário; modelo, credencial e limite de gasto ainda não foram definidos para essa validação.
 
 - Dependências: K-06, K-09, K-10, K-11, K-16.
 - Papéis: Plataforma/Harness, QA e Revisão.
@@ -176,3 +176,14 @@ O “Backend” neste backlog implementa o núcleo Python; “Frontend” implem
 | R17, R18 | K-01, K-02, K-07, K-10, K-17, K-18 |
 
 Os itens marcados representam implementação com validação controlada, não comprovação de comportamento com qualquer modelo. K-17 e o aceite completo de K-18 continuam pendentes. A aprovação deste detalhamento foi concedida; gates operacionais e aprovações de planos de projetos gerenciados continuam obrigatórios.
+
+## Retomada do escopo
+
+- K-03: preservar resultados válidos entre revisões, com revalidação e invalidação transitiva.
+- K-06: manifestos de requisitos, origem e compatibilidade de skills.
+- K-07: selecionar projetos e criar, listar e retomar sessões pela TUI.
+- K-08/K-09: ciclo limitado de revisão, correção técnica e nova revisão do plano; escalar apenas decisões reais.
+- K-11: resultados normalizados de runners e relatórios, distinguindo aprovação, falha, skip, xfail e disabled.
+- K-16: journal verificável e recuperação idempotente das fases de transferência Git.
+
+Evidências: [auditoria](scope-audit.md) e [validação](validation.md). Os checkboxes de implementação foram fechados somente após os cenários específicos passarem; não equivalem a aceite da matriz externa.

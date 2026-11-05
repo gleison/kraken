@@ -2,7 +2,7 @@
 import asyncio
 import os
 import signal
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .domain import KrakenError
 
@@ -13,6 +13,7 @@ class Result:
     stdout: str
     stderr: str
     truncated: bool = False
+    artifacts: dict[str, str] = field(default_factory=dict)
 
 
 async def process(argv, *, cwd=None, timeout=120, env=None, limit=64_000, input=None):

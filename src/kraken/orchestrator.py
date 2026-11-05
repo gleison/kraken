@@ -1,6 +1,7 @@
 """Deterministic scheduling, approval gates, evidence and serialized integration."""
 import asyncio
 import json
+from pathlib import Path
 import re
 from dataclasses import asdict
 import time
@@ -10,6 +11,7 @@ from .config import Config
 from .domain import DecisionRequired, KrakenError, canonical, require
 from .git import Repository, git
 from .tools import DockerExecutor, Tools
+from .harness import normalize
 
 
 class Orchestrator:
@@ -23,7 +25,7 @@ class Orchestrator:
         self.integration_lock = asyncio.Lock()
         self.active = set()
 
-    def gate(self):
+    def gate(self, allow_recovery=False):
         current = Config(self.root)
         self.store.assert_approved(self.plan, current.revision)
         require(current.revision == self.config.revision, 'Configuração/skills mudaram')
@@ -33,14 +35,42 @@ class Orchestrator:
         from .domain import Plan
         require(Plan.from_dict(json.loads(path.read_text())).revision == self.plan.revision,
                 'Arquivo do plano mudou; nova revisão/aprovação necessária')
-        self.client.budget.check()
+        if not allow_recovery:
+            require(self.store.get('control') != 'recovery_required', 'Recuperação Git precisa terminar antes de continuar')
+            self.client.budget.check()
 
     async def run(self):
         require(not self.active, 'Já existe execução ativa')
-        self.gate()
+        self.gate(allow_recovery=True)
         self.repo.fixtures(self.root, self.plan)
         await self.executor.preflight()
+        await self.executor.cleanup_orphans()
         await self.repo.prepare()
+        require(set(self.store.pending_publications()) == set(self.store.pending_publications(self.plan.revision)),
+                'Há transferência de outra revisão/versão; reconciliar antes de iniciar novo trabalho')
+        async def revalidate(*args, **kwargs):
+            await self.check_requirements({'qa', 'reviewer'}, args[0])
+            checked = set()
+            for name in ('qa', 'reviewer'):
+                role = self.config.role(name)
+                signature = canonical(asdict(role.profile))
+                if signature not in checked:
+                    await self.client.probe(role)
+                    checked.add(signature)
+            return await self.evaluate(*args, **kwargs)
+        await self.repo.reconcile(self.plan, revalidate=revalidate)
+        for task_id in self.store.get('interrupted', []):
+            row = next((r for r in self.store.tasks() if r['id'] == task_id), None)
+            if row and row['status'] == 'blocked' and row['attempt'] < self.plan.limits.attempts:
+                require(not self.store.get(f'publication:{self.plan.revision}:{task_id}:{row["attempt"]}'),
+                        'Journal ainda pendente de reconciliação')
+                self.store.task(task_id, 'ready', 'Tentativa isolada interrompida; nova tentativa segura')
+        self.store.set('interrupted', [])
+        if all(row['status'] == 'done' for row in self.store.tasks()):
+            self.store.set('control', 'done')
+            self.store.emit('run_recovered', status='done')
+            return
+        self.gate()
         # Protocol checks happen before any implementation, and consume approved quota.
         profiles = set()
         for name in {t.role for t in self.plan.tasks} | {'orchestrator', 'qa', 'reviewer'}:
@@ -49,9 +79,11 @@ class Orchestrator:
             if key not in profiles:
                 await self.client.probe(role)
                 profiles.add(key)
+        await self.check_requirements({t.role for t in self.plan.tasks} | {'orchestrator', 'qa', 'reviewer'}, self.repo.integration)
         self.store.set('control', 'running')
         self.store.emit('run_started', revision=self.plan.revision)
         try:
+            await self.restore_reuse()
             while self.store.get('control') == 'running':
                 self.gate()
                 rows = {r['id']: r for r in self.store.tasks()}
@@ -74,6 +106,14 @@ class Orchestrator:
                 await asyncio.gather(*self.active)
                 self.active.clear()
                 self.store.set('control', 'paused')
+            elif self.store.get('control') == 'recovery_required':
+                uncertain = [r['id'] for r in self.store.tasks() if r['status'] in {'running', 'validating', 'integrating'}]
+                self.store.set('interrupted', sorted(set(self.store.get('interrupted', [])) | set(uncertain)))
+                for future in self.active:
+                    future.cancel()
+                await asyncio.gather(*self.active, return_exceptions=True)
+                self.active.clear()
+                self.store.set('control', 'paused')
             elif self.store.get('control') == 'cancelling':
                 for future in self.active:
                     future.cancel()
@@ -93,6 +133,51 @@ class Orchestrator:
         finally:
             self.store.emit('run_stopped', status=self.store.get('control'))
 
+    async def check_requirements(self, names, workspace):
+        self.config.validate_environment(names)
+        for name in sorted(names):
+            commands = self.config.role(name).requirements.get('required_commands', [])
+            if commands:
+                checked = await self.executor.run(workspace,
+                    ['sh', '-c', 'for executable do command -v "$executable" >/dev/null || exit 127; done',
+                     'kraken-requirements', *commands], readonly=True)
+                require(checked.code == 0, f'Executável exigido pela skill do papel {name} está ausente')
+
+    async def restore_reuse(self):
+        carry = self.store.get('reuse', {})
+        pending = [t for t in self.plan.tasks if any(r['id'] == t.id and r['status'] == 'reuse_pending'
+                                                    for r in self.store.tasks())]
+        while pending:
+            progress = False
+            for task in list(pending):
+                rows = {r['id']: r for r in self.store.tasks()}
+                if any(rows[d]['status'] == 'reuse_pending' for d in task.depends_on):
+                    continue
+                progress = True
+                pending.remove(task)
+                artifact = carry.get(task.id)
+                if not artifact or any(rows[d]['status'] != 'done' for d in task.depends_on):
+                    self.store.task(task.id, 'ready', 'Dependência mudou; resultado anterior não reutilizado')
+                    continue
+                publication_started = False
+                try:
+                    self.gate()
+                    source = Path(artifact['source'])
+                    require(source.resolve().is_relative_to(self.store.directory.resolve()), 'Origem de reuse fora do runtime')
+                    candidate, current = await self.repo.candidate(task, 0, source, artifact['commit'], artifact['base'])
+                    self.store.task(task.id, 'validating', 'Revalidando resultado da revisão anterior')
+                    proofs = await self.evaluate(candidate, task, 0, current, integrated=True)
+                    publication_started = True
+                    commit = await self.repo.publish_local(candidate, current, task=task.id, attempt=0, proofs=proofs)
+                    self.store.task(task.id, 'done', 'Reutilizada após checks e revisão independentes', commit)
+                    self.store.emit('task_reused', task=task.id, source_revision=artifact['revision'], commit=commit)
+                except (KrakenError, OSError, TimeoutError) as exc:
+                    if publication_started:
+                        self.store.task(task.id, 'blocked', str(exc))
+                        raise
+                    self.store.task(task.id, 'ready', 'Resultado anterior não passou na revalidação: ' + str(exc))
+            require(progress, 'Dependências de reutilização não resolvidas')
+
     def pause(self):
         if self.store.get('control') == 'running':
             self.store.set('control', 'pausing')
@@ -107,12 +192,12 @@ class Orchestrator:
 
     async def check(self, workspace, task, attempt, check):
         version = await git(workspace, 'rev-parse', 'HEAD')
-        result = await self.executor.run(workspace, check.argv, readonly=True, fixtures=self.plan.fixtures)
-        no_tests = bool(re.search(r'Ran 0 tests|no tests ran', result.stdout + result.stderr, re.I))
-        passed = result.code == 0 and not no_tests
-        data = {'check': asdict(check), 'result': asdict(result), 'zero_tests_detected': no_tests}
-        self.store.evidence(task.id, attempt, version, 'computational', passed, data)
-        require(passed, f'Check {task.id}/{check.id} não validou o critério (exit={result.code}, zero_tests={no_tests}): {result.stderr[:500]}')
+        result = await self.executor.run(workspace, check.argv, readonly=True, fixtures=self.plan.fixtures,
+                                         capture_paths=(check.report,) if check.report else ())
+        outcome = normalize(check, result)
+        data = {'check': asdict(check), 'result': asdict(result), 'outcome': asdict(outcome)}
+        data['evidence_id'] = self.store.evidence(task.id, attempt, version, 'computational', outcome.ok, data)
+        require(outcome.ok, f'Check {task.id}/{check.id}: {outcome.reason}')
         return data
 
     async def evaluate(self, workspace, task, attempt, diff_base, *, integrated=False):
@@ -131,6 +216,7 @@ class Orchestrator:
         diff = await git(workspace, 'diff', '--no-ext-diff', '--no-textconv', diff_base, 'HEAD')
         require(len(diff) <= 50_000, 'Diff grande demais para revisão; decomponha a tarefa')
         version = await git(workspace, 'rev-parse', 'HEAD')
+        proofs = [item['evidence_id'] for item in evidence]
         for name in ('qa', 'reviewer'):
             self.gate()
             criteria = [c.id for c in task.criteria]
@@ -139,8 +225,11 @@ class Orchestrator:
                                 'decisions': self.plan.decisions}) + '\n' + verdict_instruction(criteria)
             tools = Tools(self.executor, workspace, task, readonly=True, fixtures=self.plan.fixtures)
             result = verdict(await agent(self.client, self.config.role(name), prompt, tools), criteria)
-            self.store.evidence(task.id, attempt, version, name, result['passed'], result)
+            proofs.append(self.store.evidence(task.id, attempt, version, name, result['passed'], result))
+            if result.get('needs_decision'):
+                raise DecisionRequired(result['question'] + '\nRecomendação: ' + result['recommendation'])
             require(result['passed'], f'{name}: {result["feedback"]}')
+        return proofs
 
     async def execute(self, task, attempt):
         workspace = None
@@ -191,17 +280,15 @@ class Orchestrator:
                 await self.evaluate(workspace, task, attempt, base)
                 async with self.integration_lock:
                     self.gate()
+                    require(not self.store.pending_publications(self.plan.revision), 'Transferência anterior precisa de recuperação')
                     self.store.task(task.id, 'integrating', candidate=commit)
                     candidate, current = await self.repo.candidate(task, attempt, workspace, commit, base)
                     # Re-evaluate both fast checks and reviewers against the integrated candidate.
-                    await self.evaluate(candidate, task, attempt, current, integrated=True)
+                    proofs = await self.evaluate(candidate, task, attempt, current, integrated=True)
                     self.gate()
                     publication_started = True
-                    self.store.set(f'publication:{self.plan.revision}:{task.id}:{attempt}',
-                                   {'status': 'started', 'candidate': str(candidate), 'base': current})
-                    integrated = await self.repo.publish_local(candidate, current)
-                    self.store.set(f'publication:{self.plan.revision}:{task.id}:{attempt}',
-                                   {'status': 'completed', 'commit': integrated})
+                    integrated = await self.repo.publish_local(candidate, current, task=task.id,
+                                                               attempt=attempt, proofs=proofs)
                     self.store.task(task.id, 'done', 'Integrada e validada', integrated)
         except asyncio.CancelledError:
             self.store.task(task.id, 'blocked', 'Cancelada; reconciliar efeitos antes de repetir')
@@ -211,6 +298,8 @@ class Orchestrator:
             # A conflicted/incomplete integration is preserved; do not retry uncertain effects.
             blocked = (isinstance(exc, DecisionRequired) or attempt >= self.plan.limits.attempts or publication_started
                        or self.store.get('control') != 'running')
+            if publication_started:
+                self.store.set('control', 'recovery_required')
             self.store.task(task.id, 'blocked' if blocked else 'ready', detail)
             self.store.emit('correction_feedback', task=task.id, attempt=attempt,
                             feedback=detail, harness_suggestion='Revisar controles se esta falha se repetir')

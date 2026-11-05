@@ -65,6 +65,11 @@ def verdict(content, criteria=()):
     require(all(isinstance(c, str) for c in value['criteria']), 'Critérios inválidos no veredito')
     require(set(value['criteria']) == set(criteria), 'Revisor não cobriu todos os critérios')
     require(bool(value['feedback'].strip()), 'Feedback sem evidência ou justificativa')
+    if 'needs_decision' in value:
+        require(type(value['needs_decision']) is bool, 'needs_decision precisa ser booleano')
+        if value['needs_decision']:
+            require(not value['passed'] and isinstance(value.get('question'), str) and value['question'].strip()
+                    and isinstance(value.get('recommendation'), str), 'Decisão humana contraditória/incompleta')
     return value
 
 

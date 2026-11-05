@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kraken-orchestrator"
-version = "0.1.0"
+version = "0.2.0"
 description = "Terminal-first coding orchestration with explicit planning approval"
 requires-python = ">=3.12"
 dependencies = ["httpx==0.28.1", "textual==8.2.8"]
@@ -16,4 +16,4 @@ kraken = "kraken.__main__:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-kraken = ["skills/*/SKILL.md"]
+kraken = ["skills/*/SKILL.md", "skills/*/skill.toml"]

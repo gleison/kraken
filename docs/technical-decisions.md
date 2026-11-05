@@ -85,3 +85,10 @@ Não importar automaticamente `.tasks/BACKLOG.md`, `.claude/commands` ou configu
 - 15 verificações experimentais executadas e aprovadas; testes do produto são contados separadamente.
 - Runtime implementado e exercitado somente em fixtures, com modelos controlados. Nenhuma API de modelo remoto foi chamada.
 - Runner legado preservado e não executado; nenhum commit foi feito no checkout do Kraken. Commits dos testes pertencem apenas a repositórios temporários.
+
+
+## Fechamento posterior do escopo
+
+A marcação inicial de K-01–K-16 não demonstrava conclusão integral de todas as capacidades. A [auditoria](scope-audit.md) registra as lacunas e o trabalho corretivo, incluindo orçamento de planejamento independente, correção/revisão limitada, reuse com revalidação, journal transacional, resultados normalizados, manifestos e gestão de sessões. O relatório de validação atual substitui a contagem histórica de 46 testes como evidência da versão corrente.
+
+O usuário indicou preferência pela OpenAI, mas não escolheu modelo ou limite de gasto. As variáveis de endpoint/modelo/chave não estavam presentes no início da retomada e a configuração do ambiente não declarava esses bindings. Nenhuma chave foi solicitada em chat nem criada no repositório. Essa ausência impede a validação real, não os testes controlados.

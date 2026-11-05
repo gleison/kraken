@@ -87,6 +87,11 @@ class Check:
     criteria: tuple[str, ...]
     category: str = 'behaviour'
     timing: str = 'before_integration'
+    runner: str = 'auto'
+    report: str | None = None
+    min_passed: int = 1
+    allow_skipped: bool = False
+    allow_expected_failures: bool = False
 
     def __post_init__(self):
         identifier(self.id)
@@ -95,6 +100,14 @@ class Check:
         require(self.category in {'behaviour', 'maintainability', 'architecture'}, 'Categoria inválida')
         require(self.timing in {'before_integration', 'after_integration', 'health'}, 'Momento inválido')
         require(bool(self.criteria), 'Verificação sem critérios')
+        require(self.runner in {'auto', 'command', 'unittest', 'pytest', 'junit'}, 'Runner inválido')
+        require(type(self.min_passed) is int and self.min_passed > 0, 'min_passed deve ser positivo')
+        require(type(self.allow_skipped) is bool and type(self.allow_expected_failures) is bool, 'Política de skip inválida')
+        if self.report is not None:
+            require(self.report.startswith('/tmp/') and '..' not in PurePosixPath(self.report).parts
+                    and not any(c in self.report for c in (',', '\x00', '\n')), 'Relatório deve estar em /tmp')
+            require(self.runner in {'auto', 'junit'}, 'Report exige runner junit/auto')
+        require(self.runner != 'junit' or self.report is not None, 'JUnit exige caminho do relatório')
 
 
 @dataclass(frozen=True)

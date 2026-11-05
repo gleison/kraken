@@ -1,0 +1,8 @@
+source = "builtin:harness"
+version = "0.2.0"
+license = "unspecified"
+runtime = "kraken"
+required_tools = []
+required_commands = []
+required_variables = []
+requires_network = false

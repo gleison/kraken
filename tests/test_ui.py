@@ -50,3 +50,33 @@ class UITests(unittest.IsolatedAsyncioTestCase):
             await pilot.pause()
             self.assertEqual(self.session.store.get('approved')['revision'], p.revision)
             self.assertEqual(self.session.store.get('calls'), 0)
+
+    async def test_project_manager_lists_sessions_and_returns_selection_without_running(self):
+        from kraken.projects import Catalog
+        from kraken.ui import ProjectLauncher
+        catalog = Catalog(self.root / '.kraken/catalog')
+        catalog.add(self.root)
+        expected_id = self.session.selection_id
+        self.session.close()
+        launcher = ProjectLauncher(catalog)
+        async with launcher.run_test(size=(140, 40)) as pilot:
+            await pilot.pause()
+            self.assertEqual(launcher.screen.query_one('#session-list', DataTable).row_count, 1)
+            await pilot.click('#manager-resume')
+            await pilot.pause()
+        self.assertEqual(launcher.return_value, (str(self.root), expected_id))
+        self.session = Session(self.root, session_id=expected_id)
+        self.assertEqual(self.session.store.get('calls'), 0)
+
+    async def test_main_tui_can_request_new_session_without_implicit_api(self):
+        from kraken.projects import Catalog
+        catalog = Catalog(self.root / '.kraken/catalog')
+        catalog.add(self.root)
+        app = KrakenApp(self.session, catalog=catalog)
+        async with app.run_test(size=(160, 45)) as pilot:
+            await pilot.click('#manage')
+            await pilot.pause()
+            await pilot.click('#manager-new')
+            await pilot.pause()
+        self.assertEqual(app.return_value, (str(self.root), 'new'))
+        self.assertEqual(self.session.store.get('calls'), 0)
