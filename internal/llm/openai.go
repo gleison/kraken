@@ -36,6 +36,8 @@ const (
 	levelNone                      // no response_format
 )
 
+var _ Client = (*OpenAI)(nil)
+
 // OpenAI is a thin adapter for any endpoint that speaks the
 // OpenAI Chat Completions protocol (OpenAI, Azure, Groq, Together,
 // OpenRouter, Ollama, vLLM, LM Studio, ...).

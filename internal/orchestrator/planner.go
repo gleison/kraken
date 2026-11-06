@@ -30,6 +30,8 @@ The executor has these workspace tools available; instruct it to use them when t
 %s
 Always tell the executor to call read_file before editing, and to call write_file with the FULL new contents when modifying a file.`
 
+var _ Planning = (*Planner)(nil)
+
 // Planner decomposes a goal into a Plan via an LLM call.
 type Planner struct {
 	client llm.Client

@@ -13,24 +13,16 @@ import (
 // Orchestrator composes a Planner and an Executor to turn a goal into
 // a sequence of task executions, publishing lifecycle Events on a channel.
 type Orchestrator struct {
-	planner  *Planner
-	executor *Executor
+	planner  Planning
+	executor Execution
 }
 
-// New builds an Orchestrator from an LLM client.
-func New(client llm.Client) *Orchestrator {
-	return &Orchestrator{
-		planner:  NewPlanner(client),
-		executor: NewExecutor(client),
-	}
+var _ RunService = (*Orchestrator)(nil)
+
+// NewWithPorts composes independently replaceable planning and execution ports.
+func NewWithPorts(planner Planning, executor Execution) *Orchestrator {
+	return &Orchestrator{planner: planner, executor: executor}
 }
-
-// Planner returns the underlying planner, exposed so callers can adjust
-// its prompt based on tooling availability.
-func (o *Orchestrator) Planner() *Planner { return o.planner }
-
-// Executor returns the underlying executor, exposed for tool wiring.
-func (o *Orchestrator) Executor() *Executor { return o.executor }
 
 func (o *Orchestrator) Plan(ctx context.Context, goal string) <-chan Event {
 	out := make(chan Event, 16)
