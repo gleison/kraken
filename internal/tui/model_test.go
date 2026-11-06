@@ -208,3 +208,53 @@ func TestLatestChatTurnKeepsUserHeaderVisible(t *testing.T) {
 		t.Fatalf("offset %d does not start at user header: %#v", offset, lines)
 	}
 }
+
+// The presentation adapter must also work without the concrete orchestrator.
+type runServiceStub struct {
+	mode    string
+	input   string
+	history []domain.Turn
+	ctx     context.Context
+	events  chan orchestrator.Event
+}
+
+func (s *runServiceStub) Plan(ctx context.Context, goal string) <-chan orchestrator.Event {
+	s.mode, s.input, s.ctx = "plan", goal, ctx
+	return s.events
+}
+func (s *runServiceStub) Chat(ctx context.Context, prompt string, history []domain.Turn) <-chan orchestrator.Event {
+	s.mode, s.input, s.history, s.ctx = "chat", prompt, history, ctx
+	return s.events
+}
+
+func TestModelUsesRunServicePort(t *testing.T) {
+	for _, planMode := range []bool{false, true} {
+		name := "chat"
+		var options []ModelOption
+		if planMode {
+			name = "plan"
+			options = append(options, WithPlanMode())
+		}
+		t.Run(name, func(t *testing.T) {
+			service := &runServiceStub{events: make(chan orchestrator.Event)}
+			model := NewModel(service, options...)
+			model.session = []domain.Turn{{UserInput: "earlier", Result: "answer"}}
+			model.startRun("next")
+			defer close(service.events)
+			if service.mode != name || model.events != service.events {
+				t.Fatalf("mode=%q events=%v", service.mode, model.events)
+			}
+			if planMode {
+				if service.input != model.buildGoal("next") {
+					t.Fatalf("goal=%q", service.input)
+				}
+			} else if service.input != "next" || len(service.history) != 1 || service.history[0].Result != "answer" {
+				t.Fatalf("input=%q history=%#v", service.input, service.history)
+			}
+			model.finishRun()
+			if service.ctx.Err() != context.Canceled {
+				t.Fatal("run context not canceled")
+			}
+		})
+	}
+}

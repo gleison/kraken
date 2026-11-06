@@ -38,7 +38,7 @@ func WithPlanMode() ModelOption {
 // Model holds all UI state. It depends on the orchestrator only through
 // its public API (ports-and-adapters: TUI is a driver adapter).
 type Model struct {
-	orch         *orchestrator.Orchestrator
+	orch         orchestrator.RunService
 	styles       Styles
 	phase        phase
 	mode         runMode
@@ -85,7 +85,7 @@ type eventMsg struct {
 }
 
 // NewModel builds the initial UI state.
-func NewModel(orch *orchestrator.Orchestrator, options ...ModelOption) Model {
+func NewModel(orch orchestrator.RunService, options ...ModelOption) Model {
 	model := Model{
 		orch:   orch,
 		styles: DefaultStyles(),

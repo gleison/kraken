@@ -26,22 +26,14 @@ You have file-system tools available; use them when the task requires reading or
 // same tool.
 const maxToolIterations = 8
 
-// ToolEvent is emitted by the Executor whenever a tool round occurs, so
-// the UI can show "reading X" / "wrote Y" without coupling to the LLM
-// transport.
-type ToolEvent struct {
-	TaskID    string
-	Call      tools.Call
-	Result    tools.Result
-	Iteration int
-}
+var _ Execution = (*Executor)(nil)
 
-// Executor runs a single task against the LLM. When a Registry is set,
+// Executor runs a single task against the LLM. When a tool catalog is set,
 // the model may call tools; the executor loops until the model stops
 // requesting them (or until maxToolIterations is reached).
 type Executor struct {
 	client   llm.Client
-	registry *tools.Registry
+	registry tools.Catalog
 	onTool   func(ToolEvent)
 }
 
@@ -49,18 +41,17 @@ func NewExecutor(c llm.Client) *Executor {
 	return &Executor{client: c}
 }
 
-// WithTools attaches a tool registry. nil or empty registry leaves the
+// WithTools attaches a tool catalog. nil or an empty catalog leaves the
 // executor in plain text-in/text-out mode.
-func (e *Executor) WithTools(r *tools.Registry) *Executor {
+func (e *Executor) WithTools(r tools.Catalog) *Executor {
 	e.registry = r
 	return e
 }
 
 // OnToolEvent installs a callback invoked synchronously for each tool
 // round. Used by the Orchestrator to forward the activity to the TUI.
-func (e *Executor) OnToolEvent(fn func(ToolEvent)) *Executor {
+func (e *Executor) OnToolEvent(fn func(ToolEvent)) {
 	e.onTool = fn
-	return e
 }
 
 func (e *Executor) Execute(ctx context.Context, goal string, task *domain.Task, previous []*domain.Task) (string, error) {
