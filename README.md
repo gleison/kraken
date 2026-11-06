@@ -131,3 +131,10 @@ gofmt -w ./cmd ./internal
 go test -race ./...
 go vet ./...
 ```
+
+## Evolução planejada
+
+A especificação canônica da próxima evolução do modo plan está em
+[`docs/kraken-2.0/specification.md`](docs/kraken-2.0/specification.md). O
+[`backlog`](docs/kraken-2.0/backlog.md) divide a implementação em mudanças
+incrementais; ele não descreve funcionalidades já disponíveis no `main`.
