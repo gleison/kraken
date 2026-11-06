@@ -4,7 +4,7 @@ package tui
 import (
 	"context"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/gleison/kraken/internal/domain"
 	"github.com/gleison/kraken/internal/orchestrator"
@@ -104,6 +104,7 @@ func (m Model) Init() tea.Cmd {
 
 func (m *Model) startRun(userInput string) tea.Cmd {
 	m.pendingInput = userInput
+	m.input.Reset()
 	m.goal = userInput
 	m.plan = nil
 	m.final = ""
@@ -119,6 +120,7 @@ func (m *Model) startRun(userInput string) tea.Cmd {
 		m.events = m.orch.Plan(ctx, m.goal)
 	} else {
 		m.events = m.orch.Chat(ctx, userInput, m.session)
+		m.scrollOffset = m.pendingChatTurnOffset()
 	}
 	return tea.Batch(tickSpinner(), waitForEvent(m.events))
 }

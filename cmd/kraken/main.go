@@ -32,7 +32,7 @@ import (
 	"strconv"
 	"time"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/gleison/kraken/internal/llm"
 	"github.com/gleison/kraken/internal/orchestrator"
@@ -71,7 +71,7 @@ func main() {
 	if *planFlag {
 		modelOptions = append(modelOptions, tui.WithPlanMode())
 	}
-	program := tea.NewProgram(tui.NewModel(orch, modelOptions...), tea.WithAltScreen())
+	program := tea.NewProgram(tui.NewModel(orch, modelOptions...))
 	if _, err := program.Run(); err != nil {
 		log.Fatalf("kraken: %v", err)
 	}

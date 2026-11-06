@@ -3,7 +3,7 @@ package tui
 import (
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -44,25 +44,23 @@ func (t *textInput) SetWidth(w int) { t.width = w }
 // Newline appends a line break to the buffer.
 func (t *textInput) Newline() { t.value = append(t.value, '\n') }
 
-// Update handles a key message by mutating the buffer.
-// Enter/Alt+Enter are decided by the caller (different semantics: submit vs.
-// newline), so this method ignores tea.KeyEnter entirely.
-func (t *textInput) Update(msg tea.KeyMsg) {
-	switch msg.Type {
-	case tea.KeyBackspace:
+func (t *textInput) Update(msg tea.KeyPressMsg) {
+	switch {
+	case msg.Code == tea.KeyBackspace:
 		if len(t.value) > 0 {
 			t.value = t.value[:len(t.value)-1]
 		}
-	case tea.KeyTab:
+	case msg.Code == tea.KeyTab:
 		t.value = appendNormalized(t.value, []rune{'\t'})
-	case tea.KeyCtrlJ:
-		// LF byte (0x0A) from a paste when the terminal didn't emit
-		// bracketed-paste markers. Bubble Tea maps it to KeyCtrlJ, so
-		// without this case embedded newlines would be silently dropped.
+	case msg.String() == "ctrl+j":
 		t.value = append(t.value, '\n')
-	case tea.KeyRunes, tea.KeySpace:
-		t.value = appendNormalized(t.value, msg.Runes)
+	case msg.Text != "":
+		t.value = appendNormalized(t.value, []rune(msg.Text))
 	}
+}
+
+func (t *textInput) Paste(content string) {
+	t.value = appendNormalized(t.value, []rune(content))
 }
 
 // appendNormalized appends runes to the buffer, expanding tabs to spaces and

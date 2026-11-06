@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/gleison/kraken/internal/domain"
@@ -21,7 +22,7 @@ const viewSlowThreshold = 200 * time.Millisecond
 // View renders the current state. The header and (optional) pinned plan
 // stay at the top; the body in between is fitted to the remaining
 // vertical space and can be scrolled with the keyboard.
-func (m Model) View() string {
+func (m Model) View() tea.View {
 	start := time.Now()
 	defer func() {
 		if d := time.Since(start); d > viewSlowThreshold {
@@ -35,14 +36,31 @@ func (m Model) View() string {
 
 	pinned := m.renderPinnedPlan()
 	body := m.renderBody()
+	composer := m.chatComposer()
 	footer := m.footer()
 
 	out := header + "\n\n"
 	if pinned != "" {
 		out += pinned + "\n"
 	}
-	out += m.viewport(body, pinned) + "\n" + m.scrollHint(body, pinned) + footer
-	return out
+	out += m.viewport(body, pinned)
+	if composer != "" {
+		if body != "" {
+			out += "\n"
+		}
+		out += composer
+	}
+	out += "\n" + m.scrollHint(body, pinned) + footer
+	view := tea.NewView(out)
+	view.AltScreen = true
+	return view
+}
+
+func (m Model) chatComposer() string {
+	if m.mode == modeChat && (m.phase == phaseInput || m.phase == phaseRunning) {
+		return m.renderComposer()
+	}
+	return ""
 }
 
 // renderBody returns the full (unscrolled) body for the current phase.
@@ -93,7 +111,11 @@ func (m Model) bodyHeight(pinned string) int {
 	if pinned != "" {
 		pinnedLines = strings.Count(pinned, "\n") + 2 // pinned + separator line
 	}
-	reserved := 5 + pinnedLines
+	composerLines := 0
+	if composer := m.chatComposer(); composer != "" {
+		composerLines = strings.Count(composer, "\n") + 2
+	}
+	reserved := 5 + pinnedLines + composerLines
 	if m.height <= reserved {
 		return 1
 	}
@@ -126,12 +148,26 @@ func (m Model) scrollHint(body, pinned string) string {
 
 func (m Model) viewInput() string {
 	var b strings.Builder
-	if len(m.session) > 0 {
+	if m.mode == modeChat {
+		b.WriteString(m.renderHistory())
+	} else if len(m.session) > 0 {
 		last := m.session[len(m.session)-1]
 		banner := "↺ refinando: " + truncateInline(last.UserInput, 80)
 		b.WriteString(m.styles.Subtitle.Render(banner))
 		b.WriteString("\n")
 	}
+	if m.err != nil {
+		b.WriteString(m.styles.ErrorText.Render(wrap(m.err.Error(), m.contentWidth())))
+		b.WriteString("\n\n")
+	}
+	if m.mode == modePlan {
+		b.WriteString(m.renderComposer())
+	}
+	return b.String()
+}
+
+func (m Model) renderComposer() string {
+	var b strings.Builder
 	label := "Mensagem"
 	if m.mode == modePlan {
 		label = "Objetivo"
@@ -168,15 +204,17 @@ func (m Model) viewRunning() string {
 	b.WriteString(m.renderHistory())
 
 	if m.plan == nil {
+		if m.pendingInput != "" {
+			b.WriteString(m.renderUserMessage(m.pendingInput))
+			b.WriteString("\n\n")
+		}
 		fmt.Fprintf(&b, "%s %s\n", spinnerView(m.spinnerFrame), m.phaseHeadline())
 		b.WriteString(m.renderToolActivity("chat"))
 		return b.String()
 	}
 
 	if m.pendingInput != "" {
-		b.WriteString(m.styles.Label.Render("👤 você"))
-		b.WriteString("\n")
-		b.WriteString(wrap(summarizeInput(m.pendingInput, 20), m.contentWidth()))
+		b.WriteString(m.renderUserMessage(m.pendingInput))
 		b.WriteString("\n\n")
 	}
 
@@ -300,6 +338,22 @@ func (m Model) renderHistory() string {
 	return b.String()
 }
 
+func (m Model) pendingChatTurnOffset() int {
+	return strings.Count(m.renderHistory(), "\n")
+}
+
+func (m Model) latestChatTurnOffset() int {
+	if len(m.session) < 2 {
+		return 0
+	}
+	var previous strings.Builder
+	for i := 0; i < len(m.session)-1; i++ {
+		previous.WriteString(m.renderTurn(i, m.session[i]))
+		previous.WriteString("\n")
+	}
+	return strings.Count(previous.String(), "\n") + 1
+}
+
 func (m Model) renderTurn(idx int, t domain.Turn) string {
 	var b strings.Builder
 
@@ -308,9 +362,7 @@ func (m Model) renderTurn(idx int, t domain.Turn) string {
 		b.WriteString("\n")
 	}
 
-	b.WriteString(m.styles.Label.Render("👤 você"))
-	b.WriteString("\n")
-	b.WriteString(wrap(summarizeInput(t.UserInput, 20), m.contentWidth()))
+	b.WriteString(m.renderUserMessage(t.UserInput))
 	b.WriteString("\n\n")
 
 	b.WriteString(m.styles.Label.Render("🤖 kraken"))
@@ -363,6 +415,14 @@ func summarizeInput(s string, maxLines int) string {
 		fmt.Sprintf("\n... (%d linhas adicionais)", hidden)
 }
 
+func (m Model) renderUserInput(input string) string {
+	return indent(wrap(summarizeInput(input, 20), m.contentWidth()-2), "  ")
+}
+
+func (m Model) renderUserMessage(input string) string {
+	return m.styles.Label.Render("👤 você") + "\n\n" + m.renderUserInput(input)
+}
+
 func (m Model) phaseHeadline() string {
 	if m.mode == modeChat {
 		return m.styles.Running.Render("pensando...")
@@ -398,6 +458,9 @@ func (m Model) footer() string {
 	case phaseInput:
 		return m.styles.Help.Render("ctrl+enter: enviar  •  /plan: planejar  •  /chat: conversar  •  ctrl+c: sair")
 	case phaseRunning:
+		if m.mode == modeChat {
+			return m.styles.Help.Render("continue digitando  •  esc: cancelar  •  ctrl+c: sair")
+		}
 		return m.styles.Help.Render("↑↓ ctrl+u/ctrl+d: rolar  •  esc: cancelar  •  ctrl+c: sair")
 	case phaseDone, phaseError:
 		return m.styles.Help.Render("↑↓ ctrl+u/ctrl+d: rolar  •  c: continuar  •  r: nova tarefa  •  q: sair")

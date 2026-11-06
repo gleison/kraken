@@ -2,10 +2,12 @@ package tui
 
 import (
 	"context"
+	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
+	"github.com/gleison/kraken/internal/domain"
 	"github.com/gleison/kraken/internal/llm"
 	"github.com/gleison/kraken/internal/orchestrator"
 )
@@ -20,7 +22,7 @@ func TestCtrlCCancelsActiveRun(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	model := Model{phase: phaseRunning, cancel: cancel}
 
-	updated, cmd := model.handleKey(tea.KeyMsg{Type: tea.KeyCtrlC})
+	updated, cmd := model.handleKey(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if cmd == nil {
 		t.Fatal("expected quit command")
 	}
@@ -38,7 +40,7 @@ func TestEscapeCancelsWithoutQuitting(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	model := Model{phase: phaseRunning, cancel: cancel}
 
-	_, cmd := model.handleKey(tea.KeyMsg{Type: tea.KeyEsc})
+	_, cmd := model.handleKey(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if cmd != nil {
 		t.Fatal("escape should not quit")
 	}
@@ -134,21 +136,75 @@ func TestChatCompletionIsStoredWithoutPlan(t *testing.T) {
 	model := Model{
 		phase:        phaseRunning,
 		mode:         modeChat,
+		input:        newTextInput(""),
 		pendingInput: "hello",
 		goal:         "hello",
 		events:       events,
 	}
+	model.input.value = []rune("next message")
 
 	updated, _ := model.handleEvent(eventMsg{ok: true, event: orchestrator.Event{
 		Type:  orchestrator.EventRunCompleted,
 		Final: "hi",
 	}})
 	completed := updated.(Model)
-	if completed.phase != phaseDone || len(completed.session) != 1 {
+	if completed.phase != phaseInput || len(completed.session) != 1 {
 		t.Fatalf("completed model = %#v", completed)
 	}
 	turn := completed.session[0]
 	if turn.Plan != nil || turn.UserInput != "hello" || turn.Result != "hi" {
 		t.Fatalf("turn = %#v", turn)
+	}
+	if completed.input.Value() != "next message" {
+		t.Fatalf("draft was lost: %q", completed.input.Value())
+	}
+	view := completed.View().Content
+	if !strings.Contains(view, "hi") || !strings.Contains(view, "Mensagem") {
+		t.Fatalf("chat view does not contain response and composer: %q", view)
+	}
+}
+
+func TestCtrlEnterSubmits(t *testing.T) {
+	if !isSubmitKey(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModCtrl}) {
+		t.Fatal("ctrl+enter was not recognized")
+	}
+	if isSubmitKey(tea.KeyPressMsg{Code: tea.KeyEnter}) {
+		t.Fatal("plain enter must remain a newline")
+	}
+}
+
+func TestChatAcceptsNextDraftWhileResponseIsRunning(t *testing.T) {
+	model := Model{phase: phaseRunning, mode: modeChat, input: newTextInput("")}
+	updated, cmd := model.handleKey(tea.KeyPressMsg{Code: 'n', Text: "next"})
+	if cmd != nil {
+		t.Fatal("typing a draft should not start another request")
+	}
+	if got := updated.(Model).input.Value(); got != "next" {
+		t.Fatalf("draft = %q", got)
+	}
+}
+
+func TestUserInputUsesChatResponseAlignment(t *testing.T) {
+	model := Model{width: 80}
+	if got := model.renderUserInput("hello\nworld"); got != "  hello\n  world" {
+		t.Fatalf("rendered input = %q", got)
+	}
+	if got := model.renderUserMessage("hello"); !strings.Contains(got, "você\n\n  hello") {
+		t.Fatalf("rendered message = %q", got)
+	}
+}
+
+func TestLatestChatTurnKeepsUserHeaderVisible(t *testing.T) {
+	model := Model{
+		mode: modeChat,
+		session: []domain.Turn{
+			{UserInput: "first", Result: "answer one"},
+			{UserInput: "second", Result: "answer two"},
+		},
+	}
+	offset := model.latestChatTurnOffset()
+	lines := strings.Split(model.renderHistory(), "\n")
+	if offset >= len(lines) || !strings.Contains(lines[offset], "você") {
+		t.Fatalf("offset %d does not start at user header: %#v", offset, lines)
 	}
 }

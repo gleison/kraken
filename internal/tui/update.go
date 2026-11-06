@@ -4,7 +4,7 @@ import (
 	"log"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/gleison/kraken/internal/domain"
 	"github.com/gleison/kraken/internal/orchestrator"
@@ -25,10 +25,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.input.SetWidth(msg.Width - 4)
 		return m, nil
 
-	case tea.KeyMsg:
-		log.Printf("tui: key type=%d str=%q alt=%t paste=%t phase=%d",
-			msg.Type, msg.String(), msg.Alt, msg.Paste, m.phase)
+	case tea.KeyPressMsg:
+		log.Printf("tui: key code=%d str=%q mod=%d phase=%d",
+			msg.Code, msg.String(), msg.Mod, m.phase)
 		return m.handleKey(msg)
+
+	case tea.PasteMsg:
+		if m.phase == phaseInput || (m.phase == phaseRunning && m.mode == modeChat) {
+			m.input.Paste(msg.Content)
+		}
+		return m, nil
 
 	case spinnerTickMsg:
 		if m.phase == phaseRunning {
@@ -46,30 +52,45 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyCtrlC {
+func (m Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if msg.String() == "ctrl+c" {
 		m.finishRun()
 		return m, tea.Quit
 	}
 
 	switch m.phase {
 	case phaseInput:
-		// Ctrl+Enter submits. Most terminals send it as Esc+Enter, which
-		// Bubble Tea reports as KeyEnter with Alt=true. Plain Enter (no
-		// modifier) inserts a newline so pasted content keeps its breaks.
-		if msg.Type == tea.KeyEnter {
-			if msg.Alt || msg.String() == "ctrl+enter" {
-				return m.submitInput()
-			}
+		if isSubmitKey(msg) {
+			return m.submitInput()
+		}
+		if msg.Code == tea.KeyEnter {
 			m.input.Newline()
+			return m, nil
+		}
+		if msg.String() == "ctrl+u" || msg.String() == "ctrl+d" {
+			m.handleScroll(msg)
 			return m, nil
 		}
 		m.input.Update(msg)
 		return m, nil
 
 	case phaseRunning, phaseDone, phaseError:
-		if m.phase == phaseRunning && msg.Type == tea.KeyEsc {
+		if m.phase == phaseRunning && msg.Code == tea.KeyEsc {
 			m.finishRun()
+			return m, nil
+		}
+		if m.phase == phaseRunning && m.mode == modeChat {
+			if msg.Code == tea.KeyEnter {
+				m.input.Newline()
+				return m, nil
+			}
+			if msg.String() == "ctrl+u" || msg.String() == "ctrl+d" {
+				m.handleScroll(msg)
+				return m, nil
+			}
+			if !isSubmitKey(msg) {
+				m.input.Update(msg)
+			}
 			return m, nil
 		}
 		if m.handleScroll(msg) {
@@ -89,7 +110,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.err = nil
 			m.scrollOffset = 0
 			return m, nil
-		case msg.Type == tea.KeyEnter, msg.String() == "r":
+		case msg.Code == tea.KeyEnter, msg.String() == "r":
 			// Reset: drop the session and start fresh.
 			m.phase = phaseInput
 			m.input.Reset()
@@ -106,6 +127,10 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func isSubmitKey(msg tea.KeyPressMsg) bool {
+	return msg.String() == "ctrl+enter"
 }
 
 func (m Model) submitInput() (tea.Model, tea.Cmd) {
@@ -147,7 +172,7 @@ func (m Model) submitInput() (tea.Model, tea.Cmd) {
 // real maxOffset before any relative movement, so an up-press from the
 // auto-scrolled bottom (where scrollOffset is intentionally huge) actually
 // moves up one page instead of staying pinned to the bottom.
-func (m *Model) handleScroll(msg tea.KeyMsg) bool {
+func (m *Model) handleScroll(msg tea.KeyPressMsg) bool {
 	consumed, action := m.applyScroll(msg)
 	if consumed {
 		log.Printf("tui: scroll %s offset=%d", action, m.scrollOffset)
@@ -155,12 +180,12 @@ func (m *Model) handleScroll(msg tea.KeyMsg) bool {
 	return consumed
 }
 
-func (m *Model) applyScroll(msg tea.KeyMsg) (bool, string) {
+func (m *Model) applyScroll(msg tea.KeyPressMsg) (bool, string) {
 	switch {
-	case msg.Type == tea.KeyCtrlD:
+	case msg.String() == "ctrl+d":
 		m.scrollBy(+m.scrollPageStep())
 		return true, "pgdown"
-	case msg.Type == tea.KeyCtrlU:
+	case msg.String() == "ctrl+u":
 		m.scrollBy(-m.scrollPageStep())
 		return true, "pgup"
 	}
@@ -221,7 +246,11 @@ func (m *Model) scrollPageStep() int {
 func (m Model) handleEvent(msg eventMsg) (tea.Model, tea.Cmd) {
 	if !msg.ok {
 		if m.err == nil && m.phase == phaseRunning {
-			m.phase = phaseDone
+			if m.mode == modeChat {
+				m.phase = phaseInput
+			} else {
+				m.phase = phaseDone
+			}
 		}
 		return m, nil
 	}
@@ -240,7 +269,11 @@ func (m Model) handleEvent(msg eventMsg) (tea.Model, tea.Cmd) {
 		if ev.Tool != nil {
 			m.toolActivity = append(m.toolActivity, *ev.Tool)
 		}
-		m.scrollOffset = 1 << 20
+		if m.mode == modeChat && m.plan == nil {
+			m.scrollOffset = m.pendingChatTurnOffset()
+		} else {
+			m.scrollOffset = 1 << 20
+		}
 	case orchestrator.EventTaskFailed:
 		m.updateTask(ev.Task)
 		m.err = ev.Err
@@ -262,10 +295,22 @@ func (m Model) handleEvent(msg eventMsg) (tea.Model, tea.Cmd) {
 			Result:    ev.Final,
 		})
 		m.turnRender = append(m.turnRender, renderMarkdown(ev.Final, m.contentWidth()))
+		if m.mode == modeChat && ev.Plan == nil {
+			m.phase = phaseInput
+			m.input.Focus()
+			m.plan = nil
+			m.final = ""
+			m.scrollOffset = m.latestChatTurnOffset()
+		}
 	case orchestrator.EventRunFailed:
 		m.finishRun()
 		m.err = ev.Err
-		m.phase = phaseError
+		if m.mode == modeChat {
+			m.phase = phaseInput
+			m.input.Focus()
+		} else {
+			m.phase = phaseError
+		}
 		m.scrollOffset = 1 << 20
 	}
 
