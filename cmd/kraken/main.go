@@ -61,11 +61,14 @@ func main() {
 		os.Exit(2)
 	}
 
-	orch := orchestrator.New(client)
+	planner := orchestrator.NewPlanner(client)
+	executor := orchestrator.NewExecutor(client)
 	if registry != nil && !registry.Empty() {
-		orch.Executor().WithTools(registry)
-		orch.Planner().AnnounceTools(toolDescriptions(registry))
+		executor.WithTools(registry)
+		planner.AnnounceTools(toolDescriptions(registry))
 	}
+
+	orch := orchestrator.NewWithPorts(planner, executor)
 
 	modelOptions := []tui.ModelOption{}
 	if *planFlag {
@@ -154,7 +157,7 @@ func buildToolRegistry(workspaceFlag string, allowWriteFlag bool) (*tools.Regist
 
 // toolDescriptions returns short "name — description" lines for each tool,
 // suitable for the planner's tool-hint prompt.
-func toolDescriptions(r *tools.Registry) []string {
+func toolDescriptions(r tools.Catalog) []string {
 	list := r.List()
 	out := make([]string, 0, len(list))
 	for _, t := range list {

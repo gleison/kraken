@@ -32,6 +32,12 @@ Objetivo ──► Planner ──► Plan ──► Executor
 ```
 
 - `llm.Client` é uma **porta**: trocar de provedor é implementar a interface.
+- `orchestrator.Planning` e `orchestrator.Execution` separam as estratégias de
+  planejamento e execução. `NewWithPorts` recebe essas dependências; `New`
+  mantém a composição padrão com LLM.
+- A TUI usa `orchestrator.RunService`; o executor usa `tools.Catalog`.
+  Contratos ficam em arquivos separados das implementações, e a configuração
+  dos componentes concretos fica na entrada da aplicação.
 - Os fluxos de chat e plan retornam **canais de eventos**, desacoplando a
   execução do render.
 
