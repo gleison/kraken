@@ -132,6 +132,8 @@ go build -o bin/kraken ./cmd/kraken
 
 ## Desenvolvimento
 
+As premissas de código estão em [`AGENTS.md`](AGENTS.md).
+
 ```bash
 gofmt -w ./cmd ./internal
 go test -race ./...
@@ -144,3 +146,17 @@ A especificação canônica da próxima evolução do modo plan está em
 [`docs/kraken-2.0/specification.md`](docs/kraken-2.0/specification.md). O
 [`backlog`](docs/kraken-2.0/backlog.md) divide a implementação em mudanças
 incrementais; ele não descreve funcionalidades já disponíveis no `main`.
+
+O domínio do plano executável está em `internal/domain`: `ExecutablePlan`
+contém `Activity`, dependências declaradas, papel, escopo, feedforward,
+critérios, sensores, capacidades, artefatos/evidências esperados e limites.
+`NewExecutablePlan` e `NewActivity` validam os campos e copiam profundamente
+as entradas; `Clone` produz snapshots de propriedade do consumidor. Dados
+carregados por JSON precisam passar por `Validate` antes do uso. Os limites
+de duração são serializados em segundos e os de armazenamento em bytes;
+a política padrão de correção permite três tentativas.
+
+Esses contratos ainda não substituem `Plan`/`Task` no fluxo atual. A validação
+do DAG, o scheduler, a aprovação e a execução isolada pertencem aos próximos
+incrementos. Declarar capacidades, caminhos ou sensores não concede acesso
+nem executa comandos.
