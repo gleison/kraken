@@ -155,8 +155,6 @@ func buildToolRegistry(workspaceFlag string, allowWriteFlag bool) (*tools.Regist
 	return tools.NewRegistry(regList...), nil
 }
 
-// toolDescriptions returns short "name — description" lines for each tool,
-// suitable for the planner's tool-hint prompt.
 func toolDescriptions(r tools.Catalog) []string {
 	list := r.List()
 	out := make([]string, 0, len(list))
@@ -166,15 +164,11 @@ func toolDescriptions(r tools.Catalog) []string {
 	return out
 }
 
-// parseTimeoutSeconds reads a non-negative integer (seconds) and returns it
-// as a Duration. Empty or invalid values fall through to the library default.
 func parseTimeoutSeconds(s string) time.Duration {
 	n := parsePositiveInt("OPENAI_TIMEOUT", s)
 	return time.Duration(n) * time.Second
 }
 
-// parsePositiveInt returns the non-negative integer encoded in s, or 0 if
-// s is empty or invalid. The name is used only for error reporting.
 func parsePositiveInt(name, s string) int {
 	if s == "" {
 		return 0

@@ -10,7 +10,6 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 
 const spinnerInterval = 100 * time.Millisecond
 
-// spinnerTickMsg advances the spinner frame.
 type spinnerTickMsg time.Time
 
 // tickSpinner returns a command that emits a tick after spinnerInterval.
@@ -21,7 +20,6 @@ func tickSpinner() tea.Cmd {
 	})
 }
 
-// spinnerView renders the frame for the given index.
 func spinnerView(frame int) string {
 	return spinnerFrames[frame%len(spinnerFrames)]
 }

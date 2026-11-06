@@ -7,7 +7,6 @@ package tools
 
 import "context"
 
-// Tool is a single capability the orchestrator can grant the LLM.
 type Tool interface {
 	Name() string
 	Description() string
@@ -15,12 +14,9 @@ type Tool interface {
 	// supply. Anything that marshals to a valid schema is acceptable
 	// (map[string]any, custom struct, json.RawMessage).
 	Schema() any
-	// Run executes the tool with the LLM-supplied arguments and returns
-	// the textual result that will be fed back to the model.
 	Run(ctx context.Context, args map[string]any) (string, error)
 }
 
-// Call is what the LLM asked the orchestrator to do.
 type Call struct {
 	ID   string         // provider-supplied call id
 	Name string         // tool name
@@ -28,7 +24,6 @@ type Call struct {
 	Raw  string         // raw JSON arguments (kept for logging/replay)
 }
 
-// Result is the outcome of executing a Call.
 type Result struct {
 	Call    Call
 	Content string

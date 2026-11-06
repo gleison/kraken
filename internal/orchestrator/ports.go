@@ -8,8 +8,6 @@ import (
 	"github.com/gleison/kraken/internal/tools"
 )
 
-// Planning decomposes a goal. Tool announcements are configured on the
-// concrete planner at composition time, outside this runtime contract.
 type Planning interface {
 	Plan(ctx context.Context, goal string) (*domain.Plan, error)
 }
@@ -31,9 +29,6 @@ type RunService interface {
 	Chat(ctx context.Context, prompt string, history []domain.Turn) <-chan Event
 }
 
-// ToolEvent is emitted by the Executor whenever a tool round occurs, so
-// the UI can show "reading X" / "wrote Y" without coupling to the LLM
-// transport.
 type ToolEvent struct {
 	TaskID    string
 	Call      tools.Call

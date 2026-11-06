@@ -5,7 +5,6 @@ import (
 	"github.com/gleison/kraken/internal/tools"
 )
 
-// EventType enumerates the lifecycle events emitted during a run.
 type EventType string
 
 const (
@@ -20,16 +19,13 @@ const (
 	EventRunFailed     EventType = "run_failed"
 )
 
-// Event is the message the orchestrator publishes to observers (e.g. the TUI).
 type Event struct {
 	Type  EventType
 	Plan  *domain.Plan
 	Task  *domain.Task
 	Err   error
 	Final string
-	// Tool is populated for EventToolCall: which tool was invoked, with
-	// what arguments, and the result (or error) from running it.
-	Tool *ToolActivity
+	Tool  *ToolActivity
 }
 
 // ToolActivity is a single tool round, surfaced to the TUI so it can show

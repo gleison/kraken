@@ -9,7 +9,6 @@ import (
 	"strings"
 )
 
-// ListDir lists entries (files and subdirectories) under a sandbox path.
 type ListDir struct {
 	Sandbox *Sandbox
 }

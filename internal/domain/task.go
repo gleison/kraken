@@ -4,7 +4,6 @@ package domain
 
 import "time"
 
-// Status represents the lifecycle state of a Task.
 type Status string
 
 const (
@@ -14,8 +13,6 @@ const (
 	StatusFailed  Status = "failed"
 )
 
-// Task is the smallest unit of work in the orchestration flow:
-// a single, simple and direct instruction to be fulfilled by an LLM.
 type Task struct {
 	ID          string
 	Title       string

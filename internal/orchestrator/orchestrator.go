@@ -10,8 +10,6 @@ import (
 	"github.com/gleison/kraken/internal/llm"
 )
 
-// Orchestrator composes a Planner and an Executor to turn a goal into
-// a sequence of task executions, publishing lifecycle Events on a channel.
 type Orchestrator struct {
 	planner  Planning
 	executor Execution
@@ -19,7 +17,6 @@ type Orchestrator struct {
 
 var _ RunService = (*Orchestrator)(nil)
 
-// NewWithPorts composes independently replaceable planning and execution ports.
 func NewWithPorts(planner Planning, executor Execution) *Orchestrator {
 	return &Orchestrator{planner: planner, executor: executor}
 }

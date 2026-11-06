@@ -1,6 +1,5 @@
 package llm
 
-// Role is the author of a message in a chat-style request.
 type Role string
 
 const (
@@ -32,8 +31,6 @@ type JSONSchema struct {
 	Schema any
 }
 
-// Tool describes a function the model may invoke during the call.
-// Schema is the JSON Schema for the tool's arguments.
 type Tool struct {
 	Name        string
 	Description string
@@ -49,7 +46,6 @@ type ToolCall struct {
 	Args string
 }
 
-// Request is a provider-agnostic completion request.
 type Request struct {
 	System     string
 	Messages   []Message

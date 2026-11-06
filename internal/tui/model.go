@@ -10,7 +10,6 @@ import (
 	"github.com/gleison/kraken/internal/orchestrator"
 )
 
-// phase enumerates the screens of the TUI.
 type phase int
 
 const (
@@ -78,13 +77,11 @@ type Model struct {
 	toolActivity []orchestrator.ToolActivity
 }
 
-// eventMsg wraps an orchestrator.Event into a Bubble Tea message.
 type eventMsg struct {
 	event orchestrator.Event
 	ok    bool
 }
 
-// NewModel builds the initial UI state.
 func NewModel(orch orchestrator.RunService, options ...ModelOption) Model {
 	model := Model{
 		orch:   orch,
@@ -148,7 +145,6 @@ func (m Model) buildGoal(userInput string) string {
 		"NOVO PEDIDO DO USUÁRIO:\n" + userInput
 }
 
-// waitForEvent returns a command that receives one event from the channel.
 func waitForEvent(ch <-chan orchestrator.Event) tea.Cmd {
 	return func() tea.Msg {
 		ev, ok := <-ch

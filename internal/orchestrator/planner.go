@@ -32,16 +32,11 @@ Always tell the executor to call read_file before editing, and to call write_fil
 
 var _ Planning = (*Planner)(nil)
 
-// Planner decomposes a goal into a Plan via an LLM call.
 type Planner struct {
-	client llm.Client
-	// toolHint, when non-empty, is appended to the planner's system
-	// prompt so the model knows which workspace tools the executor can
-	// use and writes plan steps accordingly.
+	client   llm.Client
 	toolHint string
 }
 
-// NewPlanner wires the Planner with its LLM dependency.
 func NewPlanner(c llm.Client) *Planner {
 	return &Planner{client: c}
 }
@@ -64,8 +59,6 @@ func (p *Planner) AnnounceTools(tools []string) {
 	p.toolHint = fmt.Sprintf(plannerToolHint, b.String())
 }
 
-// systemPrompt returns the full prompt for the planner, including any
-// tool announcement.
 func (p *Planner) systemPrompt() string {
 	return plannerBaseSystem + p.toolHint
 }
@@ -77,7 +70,6 @@ type plannerPayload struct {
 	} `json:"tasks"`
 }
 
-// Plan asks the LLM to decompose the goal and returns the resulting Plan.
 func (p *Planner) Plan(ctx context.Context, goal string) (*domain.Plan, error) {
 	goal = strings.TrimSpace(goal)
 	if goal == "" {
@@ -212,7 +204,6 @@ func repairEscape(b *strings.Builder, s string, i int) int {
 	return i + 1
 }
 
-// extractJSONObject returns the first balanced {...} block in s, or "".
 func extractJSONObject(s string) string {
 	start := strings.Index(s, "{")
 	if start < 0 {
@@ -231,7 +222,6 @@ func extractJSONObject(s string) string {
 		case c == '"':
 			inStr = !inStr
 		case inStr:
-			// skip
 		case c == '{':
 			depth++
 		case c == '}':
@@ -244,8 +234,6 @@ func extractJSONObject(s string) string {
 	return ""
 }
 
-// snippet returns a single-line, length-capped preview of s for use in
-// error messages when parsing fails.
 func snippet(s string, max int) string {
 	s = strings.ReplaceAll(s, "\n", " ")
 	if len(s) <= max {

@@ -29,19 +29,14 @@ func newTextInput(placeholder string) textInput {
 	return textInput{placeholder: placeholder, focused: true}
 }
 
-// Value returns the current text as a string.
 func (t textInput) Value() string { return string(t.value) }
 
-// Reset clears the buffer.
 func (t *textInput) Reset() { t.value = t.value[:0] }
 
-// Focus marks the input as focused (affects cursor rendering).
 func (t *textInput) Focus() { t.focused = true }
 
-// SetWidth updates the visible width.
 func (t *textInput) SetWidth(w int) { t.width = w }
 
-// Newline appends a line break to the buffer.
 func (t *textInput) Newline() { t.value = append(t.value, '\n') }
 
 func (t *textInput) Update(msg tea.KeyPressMsg) {

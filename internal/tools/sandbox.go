@@ -38,7 +38,6 @@ func NewSandbox(root string) (*Sandbox, error) {
 	return &Sandbox{root: resolved}, nil
 }
 
-// Root returns the resolved root directory.
 func (s *Sandbox) Root() string { return s.root }
 
 // Resolve maps an LLM-supplied path to an absolute path inside the root.

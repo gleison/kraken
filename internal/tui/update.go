@@ -10,7 +10,6 @@ import (
 	"github.com/gleison/kraken/internal/orchestrator"
 )
 
-// Update handles a single Bubble Tea message and returns the new state.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
@@ -258,7 +257,6 @@ func (m Model) handleEvent(msg eventMsg) (tea.Model, tea.Cmd) {
 	ev := msg.event
 	switch ev.Type {
 	case orchestrator.EventPlanning, orchestrator.EventChatStarted:
-		// spinner already ticking
 	case orchestrator.EventPlanReady:
 		m.plan = ev.Plan
 		m.scrollOffset = 1 << 20

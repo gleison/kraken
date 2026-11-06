@@ -18,7 +18,6 @@ type Styles struct {
 	Help      lipgloss.Style
 }
 
-// DefaultStyles returns the standard palette.
 func DefaultStyles() Styles {
 	primary := lipgloss.Color("#7C3AED")
 	muted := lipgloss.Color("#6B7280")

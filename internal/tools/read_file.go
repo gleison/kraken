@@ -11,7 +11,6 @@ import (
 // prompts short and to prevent accidental exfiltration of huge files.
 const defaultReadLimit = 256 * 1024
 
-// ReadFile reads a UTF-8 text file from the sandbox.
 type ReadFile struct {
 	Sandbox  *Sandbox
 	MaxBytes int // <=0 → defaultReadLimit

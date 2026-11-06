@@ -9,7 +9,6 @@ import (
 
 var _ Catalog = (*Registry)(nil)
 
-// Registry holds the tools available for a run.
 type Registry struct {
 	tools map[string]Tool
 }

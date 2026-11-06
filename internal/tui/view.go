@@ -63,7 +63,6 @@ func (m Model) chatComposer() string {
 	return ""
 }
 
-// renderBody returns the full (unscrolled) body for the current phase.
 func (m Model) renderBody() string {
 	switch m.phase {
 	case phaseInput:
@@ -101,8 +100,6 @@ func (m Model) viewport(body, pinned string) string {
 	return strings.Join(lines[off:off+bodyHeight], "\n")
 }
 
-// bodyHeight is the number of body lines the terminal can show given the
-// space already taken by header, footer, and the pinned plan.
 func (m Model) bodyHeight(pinned string) int {
 	if m.height <= 0 {
 		return 0
@@ -122,8 +119,6 @@ func (m Model) bodyHeight(pinned string) int {
 	return m.height - reserved
 }
 
-// scrollHint shows arrows when there is content above or below the viewport.
-// Reuses the already-rendered body so View only renders once per frame.
 func (m Model) scrollHint(body, pinned string) string {
 	bodyHeight := m.bodyHeight(pinned)
 	if bodyHeight <= 0 {
@@ -323,9 +318,6 @@ func (m Model) renderPinnedPlan() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// renderHistory stacks all completed turns from the session, oldest first.
-// Each turn is a chat-style block with the user's input followed by the
-// orchestrator's compact plan and rendered final result.
 func (m Model) renderHistory() string {
 	if len(m.session) == 0 {
 		return ""
