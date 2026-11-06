@@ -10,6 +10,7 @@ type EventType string
 
 const (
 	EventPlanning      EventType = "planning"
+	EventChatStarted   EventType = "chat_started"
 	EventPlanReady     EventType = "plan_ready"
 	EventTaskStarted   EventType = "task_started"
 	EventTaskCompleted EventType = "task_completed"

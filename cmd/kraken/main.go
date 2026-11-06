@@ -43,6 +43,7 @@ import (
 func main() {
 	allowWriteFlag := flag.Bool("write", false, "enable the write_file tool (also: KRAKEN_ALLOW_WRITE=1)")
 	workspaceFlag := flag.String("workspace", "", "directory the file tools may read/write inside (default: cwd, also: KRAKEN_WORKSPACE)")
+	planFlag := flag.Bool("plan", false, "start in planning mode (chat is the default)")
 	flag.Parse()
 
 	closeLog := setupLog()
@@ -66,7 +67,11 @@ func main() {
 		orch.Planner().AnnounceTools(toolDescriptions(registry))
 	}
 
-	program := tea.NewProgram(tui.NewModel(orch), tea.WithAltScreen())
+	modelOptions := []tui.ModelOption{}
+	if *planFlag {
+		modelOptions = append(modelOptions, tui.WithPlanMode())
+	}
+	program := tea.NewProgram(tui.NewModel(orch, modelOptions...), tea.WithAltScreen())
 	if _, err := program.Run(); err != nil {
 		log.Fatalf("kraken: %v", err)
 	}

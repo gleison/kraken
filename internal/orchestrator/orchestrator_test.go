@@ -31,7 +31,7 @@ func TestOrchestratorEmitsImmutableSnapshots(t *testing.T) {
 	var initialPlan *domain.Plan
 	var completed []*domain.Task
 	var final Event
-	for event := range New(client).Run(context.Background(), "goal") {
+	for event := range New(client).Plan(context.Background(), "goal") {
 		switch event.Type {
 		case EventPlanReady:
 			initialPlan = event.Plan
@@ -61,7 +61,7 @@ func TestOrchestratorPropagatesCancellation(t *testing.T) {
 		return nil, ctx.Err()
 	})
 	ctx, cancel := context.WithCancel(context.Background())
-	events := New(client).Run(ctx, "goal")
+	events := New(client).Plan(ctx, "goal")
 	<-started
 	cancel()
 
@@ -73,5 +73,46 @@ func TestOrchestratorPropagatesCancellation(t *testing.T) {
 	}
 	if !errors.Is(runError, context.Canceled) {
 		t.Fatalf("error = %v", runError)
+	}
+}
+
+func TestChatUsesConversationHistoryWithoutPlanning(t *testing.T) {
+	var request llm.Request
+	client := clientFunc(func(_ context.Context, req llm.Request) (*llm.Response, error) {
+		request = req
+		return &llm.Response{Content: "direct answer"}, nil
+	})
+	history := []domain.Turn{{UserInput: "first question", Result: "first answer"}}
+
+	var eventTypes []EventType
+	var final Event
+	for event := range New(client).Chat(context.Background(), "follow-up", history) {
+		eventTypes = append(eventTypes, event.Type)
+		if event.Type == EventRunCompleted {
+			final = event
+		}
+	}
+
+	if len(eventTypes) != 2 || eventTypes[0] != EventChatStarted || eventTypes[1] != EventRunCompleted {
+		t.Fatalf("events = %v", eventTypes)
+	}
+	if final.Plan != nil || final.Final != "direct answer" {
+		t.Fatalf("final event = %#v", final)
+	}
+	if len(request.Messages) != 3 {
+		t.Fatalf("messages = %#v", request.Messages)
+	}
+	want := []llm.Message{
+		{Role: llm.RoleUser, Content: "first question"},
+		{Role: llm.RoleAssistant, Content: "first answer"},
+		{Role: llm.RoleUser, Content: "follow-up"},
+	}
+	for i := range want {
+		if request.Messages[i].Role != want[i].Role || request.Messages[i].Content != want[i].Content {
+			t.Fatalf("message %d = %#v, want %#v", i, request.Messages[i], want[i])
+		}
+	}
+	if request.JSONSchema != nil {
+		t.Fatal("chat should not request a planning schema")
 	}
 }

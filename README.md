@@ -1,11 +1,11 @@
 # Kraken
 
-Orquestrador para usar LLMs de forma mais assertiva.
+Assistente de terminal para conversar com LLMs e, quando necessário, decompor
+objetivos complexos em planos executáveis.
 
-Decompõe uma tarefa complexa em um **plano** de tarefas simples e diretas, e
-executa cada tarefa com um LLM, passando o resultado das tarefas anteriores
-como contexto. Vem com uma TUI (Bubble Tea) para acompanhar a execução em tempo
-real.
+O modo padrão é **chat**, com conversa direta e ferramentas de workspace. O
+modo **plan** decompõe uma tarefa complexa em passos simples, executando cada
+passo com o resultado dos anteriores como contexto. A TUI usa Bubble Tea.
 
 ## Arquitetura
 
@@ -23,18 +23,17 @@ internal/tools        ferramentas confinadas ao workspace
 Fluxo:
 
 ```
-Goal ──► Planner ──► Plan (tarefas simples)
-                       │
-                       ▼
-                    Executor  ◄── contexto acumulado
-                       │
-                       ▼
-                    Eventos  ──► TUI
+Mensagem ──► Chat ──────────────────────┐
+                                       ▼
+Objetivo ──► Planner ──► Plan ──► Executor
+                                       │
+                                       ▼
+                                    Eventos ──► TUI
 ```
 
 - `llm.Client` é uma **porta**: trocar de provedor é implementar a interface.
-- `Orchestrator.Run` retorna um **canal de eventos**, o que desacopla a execução
-  do render.
+- Os fluxos de chat e plan retornam **canais de eventos**, desacoplando a
+  execução do render.
 
 ## Uso
 
@@ -51,6 +50,9 @@ nenhuma das duas o `kraken` falha no startup com instrução do que falta.
 # OpenAI (nuvem)
 export OPENAI_API_KEY=sk-...
 go run ./cmd/kraken
+
+# iniciar diretamente no modo plan
+go run ./cmd/kraken --plan
 
 # LM Studio local (sem chave)
 export OPENAI_BASE_URL=http://localhost:1234/v1
@@ -102,8 +104,12 @@ go run ./cmd/kraken --workspace /caminho/do/projeto --write
 
 ### Atalhos da TUI
 
-- `Ctrl+Enter` — executa o objetivo
+- `Ctrl+Enter` — envia a mensagem ou executa o objetivo
 - `Enter` — insere uma nova linha
+- `/plan` — muda para o modo plan
+- `/plan <objetivo>` — muda de modo e executa o objetivo
+- `/chat` — volta para o modo chat
+- `/chat <mensagem>` — muda de modo e envia a mensagem
 - `Esc` — cancela a execução atual
 - `↑`/`↓`, `Ctrl+U`/`Ctrl+D` — rola resultados longos
 - `c` — continua a sessão após concluir

@@ -20,12 +20,28 @@ const (
 	phaseError
 )
 
+type runMode int
+
+const (
+	modeChat runMode = iota
+	modePlan
+)
+
+type ModelOption func(*Model)
+
+func WithPlanMode() ModelOption {
+	return func(model *Model) {
+		model.mode = modePlan
+	}
+}
+
 // Model holds all UI state. It depends on the orchestrator only through
 // its public API (ports-and-adapters: TUI is a driver adapter).
 type Model struct {
 	orch         *orchestrator.Orchestrator
 	styles       Styles
 	phase        phase
+	mode         runMode
 	input        textInput
 	spinnerFrame int
 
@@ -69,25 +85,26 @@ type eventMsg struct {
 }
 
 // NewModel builds the initial UI state.
-func NewModel(orch *orchestrator.Orchestrator) Model {
-	return Model{
+func NewModel(orch *orchestrator.Orchestrator, options ...ModelOption) Model {
+	model := Model{
 		orch:   orch,
 		styles: DefaultStyles(),
 		phase:  phaseInput,
 		input:  newTextInput(""),
 	}
+	for _, option := range options {
+		option(&model)
+	}
+	return model
 }
 
 func (m Model) Init() tea.Cmd {
 	return nil
 }
 
-// startRun kicks off the orchestrator with the given user text. When the
-// session already has prior turns, the goal is wrapped with that context
-// so the planner can treat the call as a refinement.
 func (m *Model) startRun(userInput string) tea.Cmd {
 	m.pendingInput = userInput
-	m.goal = m.buildGoal(userInput)
+	m.goal = userInput
 	m.plan = nil
 	m.final = ""
 	m.err = nil
@@ -97,7 +114,12 @@ func (m *Model) startRun(userInput string) tea.Cmd {
 	m.toolActivity = nil
 	ctx, cancel := context.WithCancel(context.Background())
 	m.cancel = cancel
-	m.events = m.orch.Run(ctx, m.goal)
+	if m.mode == modePlan {
+		m.goal = m.buildGoal(userInput)
+		m.events = m.orch.Plan(ctx, m.goal)
+	} else {
+		m.events = m.orch.Chat(ctx, userInput, m.session)
+	}
 	return tea.Batch(tickSpinner(), waitForEvent(m.events))
 }
 

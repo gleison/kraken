@@ -32,39 +32,13 @@ func (o *Orchestrator) Planner() *Planner { return o.planner }
 // Executor returns the underlying executor, exposed for tool wiring.
 func (o *Orchestrator) Executor() *Executor { return o.executor }
 
-// Run executes the full flow and returns a read-only event channel.
-// The channel is closed when the run ends (success or failure).
-func (o *Orchestrator) Run(ctx context.Context, goal string) <-chan Event {
+func (o *Orchestrator) Plan(ctx context.Context, goal string) <-chan Event {
 	out := make(chan Event, 16)
 
 	go func() {
 		defer close(out)
-
-		send := func(e Event) {
-			select {
-			case out <- e:
-				return
-			default:
-			}
-			select {
-			case out <- e:
-			case <-ctx.Done():
-				select {
-				case out <- e:
-				default:
-				}
-			}
-		}
-
-		// Forward Executor tool activity through the same event stream.
-		o.executor.OnToolEvent(func(te ToolEvent) {
-			send(Event{Type: EventToolCall, Tool: &ToolActivity{
-				TaskID:    te.TaskID,
-				Iteration: te.Iteration,
-				Call:      te.Call,
-				Result:    te.Result,
-			}})
-		})
+		send := eventSender(ctx, out)
+		o.forwardToolEvents(send)
 
 		log.Printf("orchestrator: run start (goal_bytes=%d)", len(goal))
 		send(Event{Type: EventPlanning})
@@ -103,6 +77,64 @@ func (o *Orchestrator) Run(ctx context.Context, goal string) <-chan Event {
 	}()
 
 	return out
+}
+
+func (o *Orchestrator) Chat(ctx context.Context, prompt string, history []domain.Turn) <-chan Event {
+	out := make(chan Event, 16)
+
+	go func() {
+		defer close(out)
+		send := eventSender(ctx, out)
+		o.forwardToolEvents(send)
+
+		send(Event{Type: EventChatStarted})
+		messages := make([]llm.Message, 0, len(history)*2+1)
+		for _, turn := range history {
+			messages = append(messages,
+				llm.Message{Role: llm.RoleUser, Content: turn.UserInput},
+				llm.Message{Role: llm.RoleAssistant, Content: turn.Result},
+			)
+		}
+		messages = append(messages, llm.Message{Role: llm.RoleUser, Content: prompt})
+
+		result, err := o.executor.Chat(ctx, messages)
+		if err != nil {
+			send(Event{Type: EventRunFailed, Err: err})
+			return
+		}
+		send(Event{Type: EventRunCompleted, Final: result})
+	}()
+
+	return out
+}
+
+func eventSender(ctx context.Context, out chan<- Event) func(Event) {
+	return func(event Event) {
+		select {
+		case out <- event:
+			return
+		default:
+		}
+		select {
+		case out <- event:
+		case <-ctx.Done():
+			select {
+			case out <- event:
+			default:
+			}
+		}
+	}
+}
+
+func (o *Orchestrator) forwardToolEvents(send func(Event)) {
+	o.executor.OnToolEvent(func(toolEvent ToolEvent) {
+		send(Event{Type: EventToolCall, Tool: &ToolActivity{
+			TaskID:    toolEvent.TaskID,
+			Iteration: toolEvent.Iteration,
+			Call:      toolEvent.Call,
+			Result:    toolEvent.Result,
+		}})
+	})
 }
 
 func summarize(plan *domain.Plan) string {

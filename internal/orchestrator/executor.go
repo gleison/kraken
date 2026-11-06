@@ -18,6 +18,9 @@ Respond with a concise, direct answer that fulfills ONLY the current task.
 Do not restate the task. Do not add meta-commentary.
 You have file-system tools available; use them when the task requires reading or writing files. Never invent file contents — call read_file first.`
 
+const chatSystem = `You are a concise, helpful coding assistant. Answer the user's request directly and preserve the conversation context.
+You have file-system tools available; use them when the task requires reading or writing files. Never invent file contents — call read_file first.`
+
 // maxToolIterations bounds how many tool-call rounds a single task may
 // trigger. A misbehaving model could otherwise loop forever calling the
 // same tool.
@@ -62,28 +65,34 @@ func (e *Executor) OnToolEvent(fn func(ToolEvent)) *Executor {
 
 func (e *Executor) Execute(ctx context.Context, goal string, task *domain.Task, previous []*domain.Task) (string, error) {
 	prompt := buildExecutorPrompt(goal, task, previous)
-	log.Printf("executor: task %s start (prompt_bytes=%d, tools=%t)",
-		task.ID, len(prompt), e.toolsAvailable())
-	start := time.Now()
-
 	messages := []llm.Message{{Role: llm.RoleUser, Content: prompt}}
+	return e.complete(ctx, executorSystem, messages, task.ID)
+}
+
+func (e *Executor) Chat(ctx context.Context, messages []llm.Message) (string, error) {
+	return e.complete(ctx, chatSystem, messages, "chat")
+}
+
+func (e *Executor) complete(ctx context.Context, system string, messages []llm.Message, activityID string) (string, error) {
+	log.Printf("executor: %s start (messages=%d, tools=%t)", activityID, len(messages), e.toolsAvailable())
+	start := time.Now()
 	tools := e.requestTools()
 
 	for iter := 0; iter < maxToolIterations; iter++ {
 		resp, err := e.client.Complete(ctx, llm.Request{
-			System:   executorSystem,
+			System:   system,
 			Messages: messages,
 			Tools:    tools,
 		})
 		if err != nil {
-			log.Printf("executor: task %s failed in %s: %v", task.ID, time.Since(start), err)
+			log.Printf("executor: %s failed in %s: %v", activityID, time.Since(start), err)
 			return "", fmt.Errorf("executor: %w", err)
 		}
 
 		if len(resp.ToolCalls) == 0 {
 			content := strings.TrimSpace(resp.Content)
-			log.Printf("executor: task %s done in %s (result_bytes=%d, iters=%d)",
-				task.ID, time.Since(start), len(content), iter+1)
+			log.Printf("executor: %s done in %s (result_bytes=%d, iters=%d)",
+				activityID, time.Since(start), len(content), iter+1)
 			return content, nil
 		}
 
@@ -96,7 +105,7 @@ func (e *Executor) Execute(ctx context.Context, goal string, task *domain.Task, 
 		})
 
 		for _, tc := range resp.ToolCalls {
-			result := e.runTool(ctx, task.ID, iter+1, tc)
+			result := e.runTool(ctx, activityID, iter+1, tc)
 			messages = append(messages, llm.Message{
 				Role:       llm.RoleTool,
 				Content:    formatToolMessage(result),
@@ -105,7 +114,7 @@ func (e *Executor) Execute(ctx context.Context, goal string, task *domain.Task, 
 		}
 	}
 
-	err := fmt.Errorf("executor: task %s exceeded %d tool iterations", task.ID, maxToolIterations)
+	err := fmt.Errorf("executor: %s exceeded %d tool iterations", activityID, maxToolIterations)
 	log.Printf("%v", err)
 	return "", err
 }

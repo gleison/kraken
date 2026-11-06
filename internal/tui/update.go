@@ -59,12 +59,7 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// modifier) inserts a newline so pasted content keeps its breaks.
 		if msg.Type == tea.KeyEnter {
 			if msg.Alt || msg.String() == "ctrl+enter" {
-				goal := strings.TrimSpace(m.input.Value())
-				if goal == "" {
-					return m, nil
-				}
-				cmd := m.startRun(goal)
-				return m, cmd
+				return m.submitInput()
 			}
 			m.input.Newline()
 			return m, nil
@@ -111,6 +106,40 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+func (m Model) submitInput() (tea.Model, tea.Cmd) {
+	input := strings.TrimSpace(m.input.Value())
+	if input == "" {
+		return m, nil
+	}
+
+	for _, command := range []struct {
+		name string
+		mode runMode
+	}{
+		{name: "/plan", mode: modePlan},
+		{name: "/chat", mode: modeChat},
+	} {
+		if input == command.name {
+			m.mode = command.mode
+			m.input.Reset()
+			return m, nil
+		}
+		prefix := command.name + " "
+		if strings.HasPrefix(input, prefix) {
+			m.mode = command.mode
+			input = strings.TrimSpace(strings.TrimPrefix(input, prefix))
+			if input == "" {
+				m.input.Reset()
+				return m, nil
+			}
+			break
+		}
+	}
+
+	cmd := m.startRun(input)
+	return m, cmd
 }
 
 // handleScroll updates scrollOffset for navigation keys and returns whether
@@ -199,7 +228,7 @@ func (m Model) handleEvent(msg eventMsg) (tea.Model, tea.Cmd) {
 
 	ev := msg.event
 	switch ev.Type {
-	case orchestrator.EventPlanning:
+	case orchestrator.EventPlanning, orchestrator.EventChatStarted:
 		// spinner already ticking
 	case orchestrator.EventPlanReady:
 		m.plan = ev.Plan
@@ -222,15 +251,17 @@ func (m Model) handleEvent(msg eventMsg) (tea.Model, tea.Cmd) {
 		m.final = ev.Final
 		m.phase = phaseDone
 		m.scrollOffset = 1 << 20 // viewport clamps to bottom
+		goal := m.goal
 		if ev.Plan != nil {
-			m.session = append(m.session, domain.Turn{
-				UserInput: m.pendingInput,
-				Goal:      ev.Plan.Goal,
-				Plan:      ev.Plan,
-				Result:    ev.Final,
-			})
-			m.turnRender = append(m.turnRender, renderMarkdown(ev.Final, m.contentWidth()))
+			goal = ev.Plan.Goal
 		}
+		m.session = append(m.session, domain.Turn{
+			UserInput: m.pendingInput,
+			Goal:      goal,
+			Plan:      ev.Plan,
+			Result:    ev.Final,
+		})
+		m.turnRender = append(m.turnRender, renderMarkdown(ev.Final, m.contentWidth()))
 	case orchestrator.EventRunFailed:
 		m.finishRun()
 		m.err = ev.Err
