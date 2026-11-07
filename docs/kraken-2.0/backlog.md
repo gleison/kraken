@@ -31,17 +31,6 @@ Reorganizar interfaces e concretos atuais sem mudança de comportamento.
 Introduzir Activity, dependências, papel, escopo, feedforward, critérios,
 sensores, capacidades, artefatos e orçamento.
 
-- Entrega proposta em 2026-11-06: `Activity` e `ExecutablePlan` introduzidos
-  sem alterar o fluxo atual de `Plan`/`Task`. Construtores validam e copiam as
-  entradas; `Clone` copia todas as coleções, inclusive sensores e evidências.
-  Contratos têm representação JSON e validação explícita após desserialização.
-  Testes cobrem campos inválidos, referências locais, orçamento, caminhos,
-  serialização e mutação concorrente de snapshots independentes. A validação
-  estrutural das dependências permanece em K-004.
-- Verificação local: Go 1.26.10, `go test -race ./...`, `go vet ./...`,
-  Staticcheck v0.8.2, `gofmt` e `git diff --check` aprovados.
-  `govulncheck` v1.9.0 não encontrou vulnerabilidades alcançáveis pelo código.
-
 - Dependências: K-002.
 - Aceite: tipos validáveis e snapshots sem aliases mutáveis.
 - Testes: construção válida, campos inválidos, clone e serialização.
